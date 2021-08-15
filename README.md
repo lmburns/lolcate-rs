@@ -3,6 +3,17 @@ Lolcate
 
 [![Crates.io](https://img.shields.io/crates/v/lolcate-rs.svg)](https://crates.io/crates/lolcate-rs)
 
+## Fork
+* Adds `-c|--color=(always|auto|never)` option to searching output.
+* Adds `-a|--ansi=(1..255)` as an option to specify the color of the output.
+* If no specific file type is skipped in the database configuration file, then an option of
+  `-m|--mime=(d|dir|f|file)` is given to filter results based on directories or files.
+* Uses `num_cpus` to get max cpu's when building the database instead of a hard-coded `4`
+* Fixes error when encountering invalid symlinks by using code from [`fd`](https://github.com/sharkdp/fd)
+* Better error display
+
+* If need be, the printing option could be multi-threaded as well
+
 **A comically fast way of indexing and querying your filesystem. Replaces locate / mlocate / updatedb. Written in Rust.**
 
 ![](images/lolcate.jpg)
@@ -30,7 +41,7 @@ Lolcate operates in two phases:
    Only the path names of the files are indexed, Lolcate isn't concerned with their contents.
 
    Different databases can be created for different purposes.
-   
+
 2. Whenever needed, you can run lolcate to perform queries against its databases and it will return the path names matching the *querying rules* you specified.
 
 The same `lolcate` binary executable performs both indexing and querying.
@@ -59,7 +70,7 @@ Please edit:
 - the configuration file: /home/ngirard/.config/lolcate/default/config.toml
 - the ignores file:       /home/ngirard/.config/lolcate/default/ignores
 ```
-   
+
 Since we didn't specify the name of the database, Lolcate chose the name `default`. We could have specified the name of the database using `lolcate --create --db <db_name>`.
 
 **Indexing rules: specifying what to index**
@@ -139,7 +150,7 @@ Now that our database is populated, we can run queries against it.
     ```
 
     When no pattern is given, the query returns everything from the database.
-    
+
     `lolcate --all` will return everything from all of your databases.
 
 -   We might also want to specify a pattern by running `lolcate [--db <dbname>] <pattern>`:
@@ -167,7 +178,7 @@ Now that our database is populated, we can run queries against it.
     ```
 
     The complete syntax for the regex engine used by Lolcate is available [here](https://docs.rs/regex/latest/regex/#syntax).
-    
+
 -   Multiple patterns can be specified using `lolcate <pattern1> <pattern2> ...`.
 
     For instance, let's look for all readme files from the Images directory:
@@ -186,7 +197,7 @@ Now that our database is populated, we can run queries against it.
     /home/ngirard/Images/2019/01/1/Readme
     ```
 
-    We can perform a case-insensitive search using the `-i | --case-insensitive` option: 
+    We can perform a case-insensitive search using the `-i | --case-insensitive` option:
     ```sh
     $ lolcate -i Images README
     /home/ngirard/Images/DCIM_101CANON/readme.txt
@@ -214,7 +225,7 @@ Now that our database is populated, we can run queries against it.
     /home/ngirard/.config/lolcate/config.toml
     (...)
     ```
-    
+
     The following path types are predefined:
     ```
     [types]
@@ -230,7 +241,7 @@ Now that our database is populated, we can run queries against it.
     /home/ngirard/Documents/READMEs/2018-05-15-Cropping_images_fig1.jpg
     /home/ngirard/Documents/READMEs/2018-05-15-Cropping_images_fig2.png
     ```
-    
+
 -   Path name patterns, base name patterns and type patterns can be mixed altogether:
 
     ```sh
@@ -271,25 +282,25 @@ Pre-compiled binaries are available for Linux, MacOS and Windows.
    ```sh
    $ curl https://sh.rustup.rs -sSf | sh
    ```
-   
+
 2. If needed, add `~/.cargo/bin` to your `PATH` using e.g.:
 
    ```sh
    $ export PATH=$HOME/.cargo/bin:$PATH
    ```
-   
+
 3. Run
 
    ```
    $ cargo install lolcate-rs
    ```
-   
+
    to compile the sources from the latest release, or
 
    ```
    $ cargo install --git https://github.com/ngirard/lolcate-rs
    ```
-   
+
    to compile the latest version of the sources from the GitHub repository.
 
 # Contributing
@@ -313,9 +324,9 @@ There are a number of areas you might want to consider contributing to:
   Lolcate currently stores its data as a lz4-compressed list of path names, and recreates it each time `lolcate --update` is run. It's as simple as you can get. Although it works well enough for my taste, I'd be glad to consider alternatives ([#15](https://github.com/ngirard/lolcate-rs/issues/15)).
 
 - Benchmarking
-  
+
   ([#16](https://github.com/ngirard/lolcate-rs/issues/16))
-   
+
 # Acknowledgements
 
 - I wish to thank the Rust community for producing such a great developing environment. It's the best environment I've been working with so far !
