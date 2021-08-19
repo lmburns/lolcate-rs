@@ -1,4 +1,3 @@
-
 // This file is part of Lolcate.
 //
 // Copyright © 2019 Nicolas Girard
@@ -17,8 +16,9 @@
 // along with Lolcate.  If not, see <http://www.gnu.org/licenses/>.
 
 use crate::config::read_toml_file;
-extern crate crossbeam_channel as channel;
+use anyhow::{Context, Result};
 use bstr::io::BufReadExt;
+use crossbeam_channel as channel;
 use file_type_enum::FileType; // Easy mapping to get filetypes
 use lazy_static::lazy_static;
 use lz4::EncoderBuilder;
@@ -528,14 +528,16 @@ fn lookup_database(
     if !db_file.parent().unwrap().exists() {
         print_err(format!(
             "Database {} doesn't exist. Perhaps you forgot to run lolcate --create {} ?",
-            &db_name.green(), &db_name.green()
+            &db_name.green(),
+            &db_name.green()
         ));
         process::exit(1);
     }
     if !db_file.exists() {
         print_err(format!(
             "Database {} is empty. Perhaps you forgot to run lolcate --update {} ?",
-            &db_name.green(), &db_name.green()
+            &db_name.green(),
+            &db_name.green()
         ));
         process::exit(1);
     }
@@ -590,7 +592,7 @@ fn lookup_database(
     })
 }
 
-fn main() -> io::Result<()> {
+fn main() -> Result<()> {
     let app = cli::build_cli();
     let args = app.get_matches();
 
@@ -633,7 +635,7 @@ fn main() -> io::Result<()> {
         .value_of("ansi")
         .unwrap_or("14")
         .parse::<u8>()
-        .expect("Integer must be below 255");
+        .context("integer is not below 255")?;
 
     // lookup
     let types_map = get_types_map();
