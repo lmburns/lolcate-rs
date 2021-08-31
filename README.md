@@ -17,6 +17,10 @@ Lolcate
 * Cleaned up the code (mainly unnecessary borrows)
 
 * TODO: Add option to specify color in database file
+* TODO: Include scripts to show what it can do
+* TODO: add symlinks and executables as filetypes
+* TODO: Add threads otio
+*
 
 * If need be, the printing option could be multi-threaded as well
 

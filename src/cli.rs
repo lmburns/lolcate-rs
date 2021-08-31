@@ -124,11 +124,11 @@ pub(crate) fn build_cli() -> App<'static, 'static> {
         )
         .arg(
             Arg::with_name("ansi")
-                .help("ANSI 256 or True Color to colorize output")
+                .help("True Color to colorize output")
                 .long("ansi")
                 .short("a")
                 .takes_value(true)
-                .value_name("num")
+                .value_name("hex")
                 .required(false)
                 .conflicts_with_all(&["create", "info", "update"])
                 // .validator(

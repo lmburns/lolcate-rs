@@ -45,19 +45,18 @@
 use crate::config::read_toml_file;
 use anyhow::Result;
 use bstr::io::BufReadExt;
+use colored::{Color, Colorize};
 use crossbeam_channel as channel;
 use file_type_enum::FileType; // Easy mapping to get filetypes
-use lazy_static::lazy_static;
 use lz4::EncoderBuilder;
+use once_cell::sync::Lazy;
 use std::{
     collections::HashMap,
-    env,
-    fs,
+    env, fs,
     io::{self, Write},
     path::{Path, PathBuf},
     process, str, thread,
 };
-use colored::{Color, Colorize};
 use thiserror::Error;
 
 mod cli;
@@ -97,6 +96,9 @@ ignore_hidden = false
 
 # Set to true to read .gitignore files and ignore matching files
 gitignore = false
+
+# Colored output (optional '#' or '0x' prefix)
+color = "FF5813"
 
 "#;
 
@@ -153,15 +155,15 @@ pub fn parse_color(hex_str: &str) -> LolcateResult<Color> {
         Ok(Color::TrueColor {
             r: (r << 4) + r,
             g: (g << 4) + g,
-            b: (b << 4) + b
+            b: (b << 4) + b,
         })
     } else {
         Err(parse_error())
     }
 }
 
-// pub fn get_style(&self, colortype: ColorType, colormode: ColorMode) -> String {
-//     match self {
+// pub fn get_style(&self, colortype: ColorType, colormode: ColorMode) -> String
+// {     match self {
 //         Color::RGB(r, g, b) => match colormode {
 //             ColorMode::BitDepth24 => format!(
 //                 "{ctype};2;{r};{g};{b}",
@@ -207,12 +209,6 @@ impl DirEntry {
 }
 
 pub fn lolcate_config_path() -> PathBuf {
-    let mut path = dirs::config_dir().unwrap();
-    path.push("lolcate");
-    path
-}
-
-pub fn lolcate_data_path() -> PathBuf {
     #[cfg(target_os = "macos")]
     let mut path = env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
@@ -221,6 +217,12 @@ pub fn lolcate_data_path() -> PathBuf {
         .unwrap();
 
     #[cfg(not(target_os = "macos"))]
+    let mut path = dirs::config_dir().unwrap();
+    path.push("lolcate");
+    path
+}
+
+pub fn lolcate_data_path() -> PathBuf {
     let mut path = dirs::data_local_dir().unwrap();
     path.push("lolcate");
     path
@@ -266,6 +268,12 @@ fn get_types_map() -> HashMap<String, String> {
     _config.types
 }
 
+fn get_config_color(db: &str) -> Option<String> {
+    let config_fn = config_fn(db);
+    let config = get_db_config(&config_fn);
+    config.color
+}
+
 fn check_db_config(config: &config::Config, toml_file: &Path) {
     // Check config
     if config.dirs.is_empty() {
@@ -277,10 +285,7 @@ fn check_db_config(config: &config::Config, toml_file: &Path) {
     }
     for dir in &config.dirs {
         if !dir.exists() {
-            print_err!(
-                "the specified dir {} doesn't exist",
-                greenify!(dir)
-            );
+            print_err!("the specified dir {} doesn't exist", greenify!(dir));
             process::exit(1);
         }
         if !dir.is_dir() {
@@ -451,6 +456,7 @@ fn update_database(db_name: &str) -> std::io::Result<()> {
     }
     let config = get_db_config(&config_fn);
     check_db_config(&config, &config_fn);
+
     let skip = config.skip;
     let ignore_symlinks = config.ignore_symlinks;
     let db_path = db_fn(db_name);
@@ -524,7 +530,7 @@ fn update_database(db_name: &str) -> std::io::Result<()> {
                             return ignore::WalkState::Continue;
                         };
                     } else if skip == config::Skip::Files {
-                            return ignore::WalkState::Continue;
+                        return ignore::WalkState::Continue;
                     }
                     if ignore_symlinks && ft.is_symlink() {
                         return ignore::WalkState::Continue;
@@ -545,9 +551,7 @@ fn update_database(db_name: &str) -> std::io::Result<()> {
 }
 
 fn build_regex(pattern: &str, ignore_case: bool) -> Regex {
-    lazy_static! {
-        static ref UPPER_RE: Regex = Regex::new(r"[[:upper:]]").unwrap();
-    };
+    static UPPER_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"[[:upper:]]").unwrap());
     let re: Regex = match RegexBuilder::new(pattern)
         .case_insensitive(ignore_case || !UPPER_RE.is_match(pattern))
         .build()
@@ -569,13 +573,7 @@ fn lookup_databases(
     color_ansi: Color,
 ) -> std::io::Result<()> {
     for db_name in db_names {
-        lookup_database(
-            &db_name,
-            patterns_re,
-            types_re,
-            mime,
-            color_ansi,
-        )?;
+        lookup_database(&db_name, patterns_re, types_re, mime, color_ansi)?;
     }
     Ok(())
 }
@@ -646,7 +644,15 @@ fn lookup_database(
         }
 
         {
-            let _ = w.write_all(format!("{}", line.split(",,,").collect::<Vec<_>>()[0].color(color_ansi).bold()).as_bytes());
+            let _ = w.write_all(
+                format!(
+                    "{}",
+                    line.split(",,,").collect::<Vec<_>>()[0]
+                        .color(color_ansi)
+                        .bold()
+                )
+                .as_bytes(),
+            );
             let _ = w.write_all(b"\n");
         }
         Ok(true)
@@ -686,11 +692,20 @@ fn main() -> Result<()> {
         _ => colored::control::unset_override(), // checks NO_COLOR and stdout automatically
     }
 
-    let color_ansi = args
-        .value_of("ansi")
-        .map(parse_color)
-        .transpose()?
-        .unwrap_or(DEFAULT_BASE_COLOR);
+    let cli_ansi = args.value_of("ansi").map(parse_color).transpose()?;
+
+    let color_ansi = if let Some(ansi) = cli_ansi {
+        ansi
+    } else if let Some(ansi) = get_config_color(database) {
+        if let Ok(parsed) = parse_color(ansi.as_str()) {
+            parsed
+        } else {
+            print_err!("invalid color found in configuration file");
+            process::exit(1);
+        }
+    } else {
+        DEFAULT_BASE_COLOR
+    };
 
     // lookup
     let types_map = get_types_map();

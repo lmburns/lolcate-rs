@@ -198,11 +198,11 @@ dependencies = [
 [[package]]
 name = "colored"
 version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3616f750b84d8f0de8a58bda93e08e2a81ad3f523089b05f1dffecab48c6cbd"
+source = "git+https://github.com/wojciechkepka/colored?branch=master#24f77eda796762ac4c665dd00e17f88c661175f7"
 dependencies = [
  "atty",
  "lazy_static",
+ "serde",
  "winapi",
 ]
 
@@ -438,9 +438,9 @@ dependencies = [
  "expanduser",
  "file_type_enum",
  "ignore",
- "lazy_static",
  "lz4",
  "num_cpus",
+ "once_cell",
  "regex",
  "serde",
  "thiserror",
@@ -490,6 +490,12 @@ dependencies = [
  "hermit-abi",
  "libc",
 ]
+
+[[package]]
+name = "once_cell"
+version = "1.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "692fcb63b64b1758029e0a96ee63e049ce8c5948587f2f7208df04625e5f6b56"
 
 [[package]]
 name = "proc-macro2"

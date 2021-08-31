@@ -30,6 +30,7 @@ pub struct Config {
     pub gitignore:       bool,
     pub ignore_symlinks: bool,
     pub ignore_hidden:   bool,
+    pub color:           Option<String>,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Copy, Clone)]
