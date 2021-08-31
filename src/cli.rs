@@ -15,12 +15,11 @@
 // You should have received a copy of the GNU General Public License
 // along with Lolcate.  If not, see <http://www.gnu.org/licenses/>.
 
-extern crate clap;
-use clap::{crate_version, App, AppSettings, Arg}; // SubCommand
+use clap::{self, crate_version, App, AppSettings, Arg}; // SubCommand
 
-pub fn build_cli() -> App<'static, 'static> {
+pub(crate) fn build_cli() -> App<'static, 'static> {
     App::new("Lolcate")
-        .version(&crate_version!()[..])
+        .version(crate_version!())
         .author("Nicolas Girard <girard.nicolas@gmail.com>")
         .about("Find files by name -- A better locate / mlocate / updatedb")
         .global_setting(AppSettings::ColoredHelp)
@@ -125,13 +124,21 @@ pub fn build_cli() -> App<'static, 'static> {
         )
         .arg(
             Arg::with_name("ansi")
-                .help("ANSI 256 color to colorize output")
+                .help("ANSI 256 or True Color to colorize output")
                 .long("ansi")
                 .short("a")
                 .takes_value(true)
                 .value_name("num")
                 .required(false)
-                .conflicts_with_all(&["create", "info", "update"]),
+                .conflicts_with_all(&["create", "info", "update"])
+                // .validator(
+                //     |t| {
+                //         t.parse::<u8>()
+                //             .map_err(|_t| "must be below 255")
+                //             .map(|_t| ())
+                //             .map_err(|e| e.to_string())
+                //     },
+                // ),
         )
         .arg(
             Arg::with_name("pattern")

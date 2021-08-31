@@ -5,12 +5,18 @@ Lolcate
 
 ## Fork
 * Adds `-c|--color=(always|auto|never)` option to searching output.
-* Adds `-a|--ansi=(1..255)` as an option to specify the color of the output.
+* Adds `-a|--ansi=` as an option to specify the color of the output.
+  * Can be a 3-digit color, or a 6-digit. 6-digit codes can be prefixed with '#' (i.e., '#4C96A8') or '0x'
 * If no specific file type is skipped in the database configuration file, then an option of
   `-m|--mime=(d|dir|f|file)` is given to filter results based on directories or files.
 * Uses `num_cpus` to get max cpu's when building the database instead of a hard-coded `4`
 * Fixes error when encountering invalid symlinks by using code from [`fd`](https://github.com/sharkdp/fd)
-* Better error display
+* Better and uniform error display
+* Removed `ansi_term` and now solely uses `colored`
+* `macOS` configuration is now in `$XDG_CONFIG_HOME` or `$HOME/.config`
+* Cleaned up the code (mainly unnecessary borrows)
+
+* TODO: Add option to specify color in database file
 
 * If need be, the printing option could be multi-threaded as well
 

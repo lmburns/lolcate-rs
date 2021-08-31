@@ -1,39 +1,35 @@
-/*
- * This file is part of Lolcate.
- *
- * Copyright © 2019 Nicolas Girard
- *
- * Lolcate is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * Lolcate is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Lolcate.  If not, see <http://www.gnu.org/licenses/>.
- */
+// This file is part of Lolcate.
+//
+// Copyright © 2019 Nicolas Girard
+//
+// Lolcate is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Lolcate is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Lolcate.  If not, see <http://www.gnu.org/licenses/>.
 
 use serde::Deserialize;
-use std::collections::HashMap;
-use std::process;
-use std::{convert, fs, io::prelude::*, path};
+use std::{collections::HashMap, fs, io::prelude::*, path, process};
 use toml::de::Error;
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
-    pub description: String,
+    pub description:     String,
     #[serde(deserialize_with = "deserialize::deserialize")]
-    pub dirs: Vec<path::PathBuf>,
+    pub dirs:            Vec<path::PathBuf>,
     #[serde(default)]
-    pub skip: Skip,
+    pub skip:            Skip,
     #[serde(default)]
-    pub gitignore: bool,
+    pub gitignore:       bool,
     pub ignore_symlinks: bool,
-    pub ignore_hidden: bool,
+    pub ignore_hidden:   bool,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Copy, Clone)]
@@ -50,16 +46,16 @@ impl Default for Skip {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct GlobalConfig {
-    pub types: HashMap<String, String>,
+pub(crate) struct GlobalConfig {
+    pub(crate) types: HashMap<String, String>,
 }
 
-pub fn read_toml_file<'a, 'de, P: ?Sized, T>(
+pub(crate) fn read_toml_file<'a, 'de, P: ?Sized, T>(
     path: &'a P,
     buffer: &'de mut String,
 ) -> Result<T, Error>
 where
-    P: convert::AsRef<path::Path>,
+    P: AsRef<path::Path>,
     T: Deserialize<'de>,
 {
     let mut configuration_file: fs::File = match fs::OpenOptions::new().read(true).open(path) {
@@ -67,7 +63,7 @@ where
         Err(_e) => {
             eprintln!("Cannot open file {}", path.as_ref().display());
             process::exit(1);
-        }
+        },
     };
 
     match configuration_file.read_to_string(buffer) {
@@ -83,7 +79,7 @@ mod deserialize {
     use serde::de::{Deserialize, Deserializer};
     use std::path;
 
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<path::PathBuf>, D::Error>
+    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<Vec<path::PathBuf>, D::Error>
     where
         D: Deserializer<'de>,
     {
