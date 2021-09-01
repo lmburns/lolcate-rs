@@ -48,6 +48,7 @@ use bstr::io::BufReadExt;
 use colored::{Color, Colorize};
 use crossbeam_channel as channel;
 use file_type_enum::FileType; // Easy mapping to get filetypes
+use lscolors::{LsColors, Style};
 use lz4::EncoderBuilder;
 use once_cell::sync::Lazy;
 use std::{
@@ -64,7 +65,7 @@ mod config;
 
 use regex::{Regex, RegexBuilder};
 
-pub(crate) const DEFAULT_BASE_COLOR: Color = colored::Color::Blue;
+// pub(crate) const DEFAULT_BASE_COLOR: Color = colored::Color::Blue;
 static GLOBAL_CONFIG_TEMPLATE: &str = r#"[types]
 # Definition of custom path name types
 # Examples:
@@ -98,7 +99,7 @@ ignore_hidden = false
 gitignore = false
 
 # Colored output (optional '#' or '0x' prefix)
-color = "FF5813"
+# color = "FF5813"
 
 "#;
 
@@ -108,11 +109,12 @@ static PROJECT_IGNORE_TEMPLATE: &str = r#"# Dirs / files to ignore.
 #
 # .git
 # *~
+# target/
 "#;
 
 macro_rules! print_err {
     ($($err:tt)*) => ({
-        eprintln!("{}: {}", "Error:".red().bold(), format!($($err)*));
+        eprintln!("{}: {}", "Error".red().bold(), format!($($err)*));
     })
 }
 
@@ -223,6 +225,14 @@ pub fn lolcate_config_path() -> PathBuf {
 }
 
 pub fn lolcate_data_path() -> PathBuf {
+    #[cfg(target_os = "macos")]
+    let mut path = env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| dirs::home_dir().map(|d| d.join(".local").join("share")))
+        .unwrap();
+
+    #[cfg(not(target_os = "macos"))]
     let mut path = dirs::data_local_dir().unwrap();
     path.push("lolcate");
     path
@@ -570,10 +580,18 @@ fn lookup_databases(
     patterns_re: &[Regex],
     types_re: &[Regex],
     mime: &str,
-    color_ansi: Color,
+    color_ansi: Option<Color>,
+    color_when: bool,
 ) -> std::io::Result<()> {
     for db_name in db_names {
-        lookup_database(&db_name, patterns_re, types_re, mime, color_ansi)?;
+        lookup_database(
+            &db_name,
+            patterns_re,
+            types_re,
+            mime,
+            color_ansi,
+            color_when,
+        )?;
     }
     Ok(())
 }
@@ -584,7 +602,8 @@ fn lookup_database(
     patterns_re: &[Regex],
     types_re: &[Regex],
     mime: &str,
-    color_ansi: Color,
+    color_ansi: Option<Color>,
+    color_when: bool,
 ) -> std::io::Result<()> {
     let db_file = db_fn(db_name);
     if !db_file.parent().unwrap().exists() {
@@ -645,11 +664,10 @@ fn lookup_database(
 
         {
             let _ = w.write_all(
-                format!(
-                    "{}",
-                    line.split(",,,").collect::<Vec<_>>()[0]
-                        .color(color_ansi)
-                        .bold()
+                fmt_output(
+                    line.split(",,,").collect::<Vec<_>>()[0],
+                    color_ansi,
+                    color_when,
                 )
                 .as_bytes(),
             );
@@ -657,6 +675,30 @@ fn lookup_database(
         }
         Ok(true)
     })
+}
+
+fn fmt_output<P: AsRef<Path>>(path: P, base_color: Option<Color>, color_when: bool) -> String {
+    let lscolors = LsColors::from_env().unwrap_or_default();
+
+    if let Some(base) = base_color {
+        // picks up color_when automatically
+        format!("{}", path.as_ref().display().to_string().color(base).bold())
+    } else if color_when {
+        lscolors
+            .style_for_path_components(path.as_ref())
+            .fold(Vec::new(), |mut acc, (component, style)| {
+                acc.push(
+                    style
+                        .map_or_else(|| ansi_term::Color::Blue.bold(), Style::to_ansi_term_style)
+                        .paint(component.to_string_lossy())
+                        .to_string(),
+                );
+                acc
+            })
+            .join("")
+    } else {
+        path.as_ref().display().to_string()
+    }
 }
 
 fn main() -> Result<()> {
@@ -686,25 +728,33 @@ fn main() -> Result<()> {
         process::exit(0);
     }
 
-    match args.value_of("color").unwrap_or("auto") {
-        "never" => colored::control::SHOULD_COLORIZE.set_override(false),
-        "always" => colored::control::SHOULD_COLORIZE.set_override(true),
-        _ => colored::control::unset_override(), // checks NO_COLOR and stdout automatically
-    }
+    let color_when = match args.value_of("color").unwrap_or("auto") {
+        "never" => {
+            colored::control::SHOULD_COLORIZE.set_override(false);
+            false
+        },
+        "always" => {
+            colored::control::SHOULD_COLORIZE.set_override(true);
+            true
+        },
+        _ =>
+        // colored::control::unset_override()
+            atty::is(atty::Stream::Stdout) && env::var_os("NO_COLOR").is_none(),
+    };
 
     let cli_ansi = args.value_of("ansi").map(parse_color).transpose()?;
 
     let color_ansi = if let Some(ansi) = cli_ansi {
-        ansi
+        Some(ansi)
     } else if let Some(ansi) = get_config_color(database) {
         if let Ok(parsed) = parse_color(ansi.as_str()) {
-            parsed
+            Some(parsed)
         } else {
             print_err!("invalid color found in configuration file");
             process::exit(1);
         }
     } else {
-        DEFAULT_BASE_COLOR
+        None
     };
 
     // lookup
@@ -738,6 +788,7 @@ fn main() -> Result<()> {
         &types_re,
         mime,
         color_ansi,
+        color_when,
     )?;
     Ok(())
 }

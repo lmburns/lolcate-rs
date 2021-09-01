@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2021-08-31
+
+### Fixed
+
+- Fix error on broken symlinks ([#29](https://github.com/ngirard/lolcate-rs/issues/29)).
+- Add `LS_COLORS`, and an option for user specified true color (i.e., '#44AAFF') ([#13](https://github.com/ngirard/lolcate-rs/issues/13)).
+
+### Changed
+- `macOS` configuration and `data_local` directories have been switched to respect `$XDG_CONFIG_HOME` and `$XDG_DATA_HOME` respectively.
+- Added `color` option to configuration
+- Added option to specify whether or not only files or only directories show up in the search results using `-m|--mime` `d|dir|f|file`
+- Added a script to use with `fzf`
+- Switched from `ansi_term` to only `colored` except for whenever displaying `LS_COLORS`
+
 ## [0.10.0] - 2020-12-04
 
 ### Fixed
@@ -50,7 +64,7 @@ This project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html
 
 ### Changed
 
-- Use regex for basename matching instead of splitting the path, leading to a 10% performance improvement 
+- Use regex for basename matching instead of splitting the path, leading to a 10% performance improvement
   (ec5140f, thanks to [@icewind1991](https://github.com/icewind1991)).
 - Added `adoc` (Asciidoc) to the `doc` predefined path type.
 

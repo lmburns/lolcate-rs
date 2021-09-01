@@ -50,8 +50,8 @@ alias br := build-release
 build-release:
   cargo build --release --all-features {{CI}}
 
-test:
-  cargo test {{CI}}
+test *ARGS:
+  cargo test {{CI}} -- {{ARGS}}
 
 ###################################################################################
 ###################################################################################
