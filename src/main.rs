@@ -402,7 +402,7 @@ fn info_databases() -> std::io::Result<()> {
             println!("{}", "Databases:".cyan());
             for (name, desc, config, ignores, db_fn) in db_data {
                 println!("  {}", name.green());
-                println!("    {}:  {}", "Descrption".magenta(), desc);
+                println!("    {}:  {}", "Description".magenta(), desc);
                 println!("    {}:  {}", "Config file".magenta(), config);
                 println!("    {}:  {}", "Ignores file".magenta(), ignores);
                 println!("    {}:  {}", "Data file".magenta(), db_fn);

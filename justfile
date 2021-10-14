@@ -1,13 +1,18 @@
 set shell := ["zsh", "-euyc"]
 # F
 
+set dotenv-load := true
+
 # Doesn't work??, Get this to be a just variable
 CI := if env_var_or_default("CI", "1") == "0" { "--color=never" } else { "--color=always" }
-version := `rg --color=never --pcre2 -oIN '^version = "\K(\d+\.?)+' Cargo.toml`
+# version := `rg --color=never --pcre2 -oIN '^version = "\K(\d+\.?)+' Cargo.toml`
 
 # Doesn't not export and read
 rl := if env_var_or_default("rl", "0") == "1" { "RUST_LOG=debug" } else { "" }
 # export RUST_LOG := "debug"
+
+debug:
+  echo $TASKRC $TASKDATA
 
 bt := '0'
 export RUST_BACKTRACE := bt
@@ -79,12 +84,12 @@ view-man: man
 
 replace FROM TO:
   -fd -tf -e rs -e toml | sad '{{FROM}}' '{{TO}}'
-
-@update-version NEW:
-  -just replace {{version}} {{NEW}}
-
-@get-version:
-  echo "{{version}}"
+#
+# @update-version NEW:
+#   -just replace {{version}} {{NEW}}
+#
+# @get-version:
+#   echo "{{version}}"
 
 @lint:
   print -Pr "%F{2}%BChecking for FIXME/TODO...%b%f"
