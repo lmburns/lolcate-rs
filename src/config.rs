@@ -30,6 +30,7 @@ pub struct Config {
     pub gitignore:       bool,
     pub ignore_symlinks: bool,
     pub ignore_hidden:   bool,
+    pub ignore_missing:  bool,
     pub color:           Option<String>,
 }
 

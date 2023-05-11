@@ -95,6 +95,9 @@ ignore_symlinks = false
 # Set to true if you want to ignore hidden files and directories
 ignore_hidden = false
 
+# Set to true if you want to ignore missing directories
+ignore_missing = false
+
 # Set to true to read .gitignore files and ignore matching files
 gitignore = false
 
@@ -294,11 +297,11 @@ fn check_db_config(config: &config::Config, toml_file: &Path) {
         process::exit(1);
     }
     for dir in &config.dirs {
-        if !dir.exists() {
-            print_err!("the specified dir {} doesn't exist", greenify!(dir));
+        if !dir.exists() && !config.ignore_missing {
+            print_err!("the specified dir {} doesn't exist.", greenify!(dir));
             process::exit(1);
         }
-        if !dir.is_dir() {
+        if !dir.is_dir() && !config.ignore_missing {
             print_err!(
                 "the specified path {} is not a directory or cannot be accessed",
                 greenify!(dir)
@@ -439,7 +442,9 @@ pub fn walker(config: &config::Config, database: &str) -> ignore::WalkParallel {
         .git_exclude(false); // Don't read .git/info/exclude files
 
     for path in &paths[1..] {
-        wd.add(path);
+        if !path.exists() && !config.ignore_missing {
+            wd.add(path);
+        }
     }
     wd.add_ignore(ignores_fn(database));
     wd.threads(num_cpus::get());
