@@ -116,7 +116,7 @@ pub fn lolcate_config_path() -> PathBuf {
     let mut path = env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
-        .or_else(|| dirs::home_dir().map(|d| d.join(".config")))
+        .or_else(|| home::home_dir().map(|d| d.join(".config")))
         .unwrap();
 
     path.push("lolcate");
@@ -127,7 +127,7 @@ pub fn lolcate_data_path() -> PathBuf {
     let mut path = env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
-        .or_else(|| dirs::home_dir().map(|d| d.join(".local").join("share")))
+        .or_else(|| home::home_dir().map(|d| d.join(".local").join("share")))
         .unwrap();
 
     path.push("lolcate");
