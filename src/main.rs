@@ -38,15 +38,6 @@ dirs = [
   # "/second/dir"
 ]
 
-# Set to true if you want to ignore hidden files and directories
-ignore_hidden = false
-
-# Set to true to read .gitignore files and ignore matching files
-gitignore = false
-
-# Colored output (optional '#' or '0x' prefix)
-# color = "FF5813"
-
 "#;
 
 static PROJECT_IGNORE_TEMPLATE: &str = r#"# Dirs / files to ignore.
@@ -136,10 +127,6 @@ pub struct Config {
     pub description: String,
     #[serde(deserialize_with = "deserialize::deserialize")]
     pub dirs: Vec<PathBuf>,
-    #[serde(default)]
-    pub gitignore: bool,
-    pub ignore_hidden: bool,
-    pub color: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -432,12 +419,12 @@ pub fn walker(config: &Config, database: &str) -> ignore::WalkParallel {
 
     let mut wd = ignore::WalkBuilder::new(&paths[0]);
 
-    wd.hidden(config.ignore_hidden) // Whether to ignore hidden files
+    wd.hidden(false)
         .parents(false) // Don't read ignore files from parent directories
         .follow_links(true) // Follow symbolic links
         .ignore(true) // Don't read .ignore files
-        .git_global(config.gitignore) // Don't read global gitignore file
-        .git_ignore(config.gitignore) // Don't read .gitignore files
+        .git_global(true) // Don't read global gitignore file
+        .git_ignore(true) // Don't read .gitignore files
         .git_exclude(false); // Don't read .git/info/exclude files
 
     for path in &paths[1..] {
@@ -596,7 +583,6 @@ fn lookup_database(
         process::exit(1);
     }
 
-    let color_output = atty::is(atty::Stream::Stdout);
     let input_file = fs::File::open(db_file)?;
     let decoder = lz4::Decoder::new(input_file)?;
     let mut reader = io::BufReader::new(decoder);
@@ -643,34 +629,28 @@ fn lookup_database(
         }
 
         {
-            let _ = w.write_all(
-                fmt_output(line.split(",,,").collect::<Vec<_>>()[0], color_output).as_bytes(),
-            );
+            let _ = w.write_all(fmt_output(line.split(",,,").collect::<Vec<_>>()[0]).as_bytes());
             let _ = w.write_all(b"\n");
         }
         Ok(true)
     })
 }
 
-fn fmt_output<P: AsRef<Path>>(path: P, color_output: bool) -> String {
+fn fmt_output<P: AsRef<Path>>(path: P) -> String {
     let lscolors = LsColors::from_env().unwrap_or_default();
 
-    if color_output {
-        lscolors
-            .style_for_path_components(path.as_ref())
-            .fold(Vec::new(), |mut acc, (component, style)| {
-                acc.push(
-                    style
-                        .map_or(ansi_term::Color::Blue.bold(), Style::to_ansi_term_style)
-                        .paint(component.to_string_lossy())
-                        .to_string(),
-                );
-                acc
-            })
-            .join("")
-    } else {
-        path.as_ref().display().to_string()
-    }
+    lscolors
+        .style_for_path_components(path.as_ref())
+        .fold(Vec::new(), |mut acc, (component, style)| {
+            acc.push(
+                style
+                    .map_or(ansi_term::Color::Blue.bold(), Style::to_ansi_term_style)
+                    .paint(component.to_string_lossy())
+                    .to_string(),
+            );
+            acc
+        })
+        .join("")
 }
 
 fn main() -> Result<()> {
