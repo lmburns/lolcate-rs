@@ -447,6 +447,11 @@ fn update_database(db_name: &str) -> io::Result<()> {
                         if skip == config::Skip::Dirs {
                             return ignore::WalkState::Continue;
                         };
+
+                        // Ignore CACHEDIR.tag files.
+                        if cachedir::is_tagged(entry.path()).unwrap() {
+                            return ignore::WalkState::Continue;
+                        }
                     } else if skip == config::Skip::Files {
                         return ignore::WalkState::Continue;
                     }
