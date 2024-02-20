@@ -41,9 +41,6 @@ dirs = [
 # Set to true if you want to ignore hidden files and directories
 ignore_hidden = false
 
-# Set to true if you want to ignore missing directories
-ignore_missing = false
-
 # Set to true to read .gitignore files and ignore matching files
 gitignore = false
 
@@ -142,7 +139,6 @@ pub struct Config {
     #[serde(default)]
     pub gitignore: bool,
     pub ignore_hidden: bool,
-    pub ignore_missing: bool,
     pub color: Option<String>,
 }
 
@@ -291,11 +287,11 @@ fn check_db_config(config: &Config, toml_file: &Path) {
     }
 
     for dir in &config.dirs {
-        if !dir.exists() && !config.ignore_missing {
+        if !dir.exists() {
             print_err!("the specified dir {} doesn't exist.", greenify!(dir));
             process::exit(1);
         }
-        if !dir.is_dir() && !config.ignore_missing {
+        if !dir.is_dir() {
             print_err!(
                 "the specified path {} is not a directory or cannot be accessed",
                 greenify!(dir)
@@ -445,7 +441,7 @@ pub fn walker(config: &Config, database: &str) -> ignore::WalkParallel {
         .git_exclude(false); // Don't read .git/info/exclude files
 
     for path in &paths[1..] {
-        if !path.exists() && !config.ignore_missing {
+        if !path.exists() {
             wd.add(path);
         }
     }
