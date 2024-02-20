@@ -1,49 +1,47 @@
 [package]
-name = "lolcate-rs"
-version = "0.1.3"
+authors = [ "Nicolas Girard <girard.nicolas@gmail.com>" ]
+categories = [ "command-line-utilities", "filesystem" ]
 description = "A comically fast way of indexing and querying your filesystem. Replaces locate / mlocate / updatedb."
 documentation = "https://github.com/ngirard/lolcate-rs/blob/master/README.md"
-readme = "README.md"
-repository = "https://github.com/ngirard/lolcate-rs"
-keywords = ["filesystem-indexer", "search", "regex"]
-categories = ["command-line-utilities", "filesystem"]
-license = "GPL-3.0"
-authors = ["Nicolas Girard <girard.nicolas@gmail.com>"]
-edition = "2018"
+edition = "2021"
 exclude = [
     "/misc/**",
     "/mk_test_tree.sh",
     "notes.txt",
-    "/test/**"
+    "/test/**",
 ]
+keywords = [ "filesystem-indexer", "search", "regex" ]
+license = "GPL-3.0"
+name = "lolcate-rs"
+readme = "README.md"
+repository = "https://github.com/ngirard/lolcate-rs"
+version = "0.1.3"
 
 [dependencies]
 ansi_term = "0.12.1"
-anyhow = "1.0.43"
+anyhow = "1.0.79"
 atty = "0.2.14"
-bstr = "0.2"
-clap = "2"
-colored = { git = "https://github.com/wojciechkepka/colored", branch = "master", features = ["serde"] }
+bstr = "1.9"
+cachedir = "0"
+clap = { version = "4", features = [ "cargo", "derive" ] }
+colored = "2"
 crossbeam-channel = "0.5"
 dirs = "3.0"
-file_type_enum = "0.11.1"
+expanduser = "1.2"
+file_type_enum = "2.0.1"
 ignore = "0.4"
-lscolors = "0.7.1"
+lscolors = { version = "0.17.0", features = [ "ansi_term" ] }
 lz4 = "1"
-num_cpus = "1.13.0"
-once_cell = "1.8.0"
+num_cpus = "1.16.0"
+once_cell = "1.19.0"
 regex = "1"
-serde = { version = "1.0", features = ["derive"] }
-thiserror = "1.0.28"
-toml = "0.5"
+serde = { version = "1.0", features = [ "derive" ] }
+toml = "0.8"
 walkdir = "2"
 
-[target.'cfg(not(windows))'.dependencies]
-expanduser = "1.2"
-
 [[bin]]
-path = "src/main.rs"
 name = "lolcate"
+path = "src/main.rs"
 
 [profile.release]
 lto = true

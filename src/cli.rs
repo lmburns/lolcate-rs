@@ -14,136 +14,67 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with Lolcate.  If not, see <http://www.gnu.org/licenses/>.
+use clap::{Parser, ValueEnum};
 
-use clap::{self, crate_version, App, AppSettings, Arg}; // SubCommand
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+pub enum MimeChoices {
+    F,
+    D,
+    Dir,
+    File,
+    #[default]
+    Any,
+}
 
-pub(crate) fn build_cli() -> App<'static, 'static> {
-    App::new("Lolcate")
-        .version(crate_version!())
-        .author("Nicolas Girard <girard.nicolas@gmail.com>")
-        .about("Find files by name -- A better locate / mlocate / updatedb")
-        .global_setting(AppSettings::ColoredHelp)
-        .global_setting(AppSettings::ColorAuto)
-        .arg(
-            Arg::with_name("create")
-                .help("Create a database")
-                .long("create")
-                .takes_value(false)
-                .conflicts_with_all(&["pattern", "update", "info"])
-                .required(false),
-        )
-        .arg(
-            Arg::with_name("info")
-                .help("Display configuration informations and existing databases")
-                .long("info")
-                .takes_value(false)
-                .conflicts_with_all(&["pattern", "update", "create", "database"])
-                .required(false),
-        )
-        .arg(
-            Arg::with_name("update")
-                .help("Update database")
-                .long("update")
-                .short("u")
-                .takes_value(false)
-                .conflicts_with_all(&["pattern", "create", "info"])
-                .required(false),
-        )
-        .arg(
-            Arg::with_name("database")
-                .help("Database to be used / created")
-                .long("db")
-                .takes_value(true)
-                .required(false)
-                .default_value("default"),
-        )
-        .arg(
-            Arg::with_name("type")
-                .help("One or several file types to search, separated with commas")
-                .long("type")
-                .short("t")
-                .takes_value(true)
-                .required(false),
-        )
-        .arg(
-            Arg::with_name("mime")
-                .help("Filter based on file type")
-                .long("mime")
-                .short("m")
-                .takes_value(true)
-                .required(false)
-                .possible_values(&["f", "file", "d", "dir"]),
-        )
-        .arg(
-            Arg::with_name("all")
-                .help("Query / update all databases")
-                .long("all")
-                .takes_value(false)
-                .conflicts_with_all(&["create", "info"])
-                .required(false),
-        )
-        .arg(
-            Arg::with_name("ignore_case")
-                .help("Search case-insensitively [default: smart-case]")
-                .long_help(
-                    "Search the given patterns case-insensitively. Default is \"smart-case\", \
-                     i.e. patterns are searched case-insensitively when all in lowercase, and \
-                     sensitively otherwise.",
-                )
-                .short("i")
-                .long("ignore-case")
-                .takes_value(false)
-                .required(false)
-                .conflicts_with_all(&["create", "info", "update"]),
-        )
-        .arg(
-            Arg::with_name("basename_pattern")
-                .help("Match only basename against PATTERN")
-                .long_help(
-                    "Match only the basename against the specified PATTERN. Can be supplied \
-                     multiple times, e.g. -b PATTERN1 -b PATTERN2",
-                )
-                .short("b")
-                .long("basename")
-                .takes_value(true)
-                .value_name("patt")
-                .number_of_values(1)
-                .required(false)
-                .conflicts_with_all(&["create", "info", "update"]),
-        )
-        .arg(
-            Arg::with_name("color")
-                .help("When to colorize output during search")
-                .long("color")
-                .short("c")
-                .takes_value(true)
-                .possible_values(&["always", "auto", "never"])
-                .value_name("when")
-                .required(false)
-                .conflicts_with_all(&["create", "info", "update"]),
-        )
-        .arg(
-            Arg::with_name("ansi")
-                .help("True Color to colorize output")
-                .long("ansi")
-                .short("a")
-                .takes_value(true)
-                .value_name("hex")
-                .required(false)
-                .conflicts_with_all(&["create", "info", "update"])
-                // .validator(
-                //     |t| {
-                //         t.parse::<u8>()
-                //             .map_err(|_t| "must be below 255")
-                //             .map(|_t| ())
-                //             .map_err(|e| e.to_string())
-                //     },
-                // ),
-        )
-        .arg(
-            Arg::with_name("pattern")
-                .value_name("PATTERN")
-                .min_values(1)
-                .required(false),
-        )
+#[derive(Parser)]
+#[command(name = "lolcate")]
+#[command(author = "Nicolas Girard <girard.nicolas@gmail.com>")]
+#[command(version = "0.1")]
+// #[arg(setting = clap::AppSettings::ColoredHelp, setting = clap::AppSettings::ColorAuto)]
+pub struct Args {
+    /// Create a database
+    #[arg(long, conflicts_with_all = &["pattern", "update", "info"])]
+    pub create: bool,
+
+    /// Display configuration information and existing databases
+    #[arg(long, conflicts_with_all = &["pattern", "update", "create", "database"])]
+    pub info: bool,
+
+    /// Update database
+    #[arg(short = 'u', long, conflicts_with_all = &["pattern", "create", "info"])]
+    pub update: bool,
+
+    /// Database to be used / created
+    #[arg(long = "db", default_value = "default")]
+    pub database: String,
+
+    /// One or several file types to search, separated with commas
+    #[arg(short = 't', long)]
+    pub types: Option<String>,
+
+    /// Filter based on file type
+    #[arg(
+        value_enum,
+        short = 'm',
+        long,
+        default_value = "any",
+        rename_all = "lowercase"
+    )]
+    pub mime: Option<MimeChoices>,
+
+    /// Query / update all databases
+    #[arg(long, conflicts_with_all = &["create", "info"])]
+    pub all: bool,
+
+    /// Search case-insensitively [default: smart-case]
+    #[arg(short = 'i', long = "ignore-case", conflicts_with_all = &["create", "info", "update"])]
+    pub ignore_case: bool,
+
+    /// Match only basename against PATTERN
+    #[arg(short = 'b', long = "basename", conflicts_with_all = &["create", "info", "update"])]
+    pub basename_pattern: Option<Vec<String>>,
+
+    /// PATTERN
+    #[clap(required = false)]
+    pub pattern: Vec<String>,
 }

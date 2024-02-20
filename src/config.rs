@@ -21,30 +21,25 @@ use toml::de::Error;
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
-    pub description:     String,
+    pub description: String,
     #[serde(deserialize_with = "deserialize::deserialize")]
-    pub dirs:            Vec<path::PathBuf>,
+    pub dirs: Vec<path::PathBuf>,
     #[serde(default)]
-    pub skip:            Skip,
+    pub skip: Skip,
     #[serde(default)]
-    pub gitignore:       bool,
+    pub gitignore: bool,
     pub ignore_symlinks: bool,
-    pub ignore_hidden:   bool,
-    pub ignore_missing:  bool,
-    pub color:           Option<String>,
+    pub ignore_hidden: bool,
+    pub ignore_missing: bool,
+    pub color: Option<String>,
 }
 
-#[derive(Debug, Deserialize, PartialEq, Copy, Clone)]
+#[derive(Debug, Default, Deserialize, PartialEq, Copy, Clone)]
 pub enum Skip {
+    #[default]
     None,
     Dirs,
     Files,
-}
-
-impl Default for Skip {
-    fn default() -> Self {
-        Skip::None
-    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -52,13 +47,10 @@ pub(crate) struct GlobalConfig {
     pub(crate) types: HashMap<String, String>,
 }
 
-pub(crate) fn read_toml_file<'a, 'de, P: ?Sized, T>(
-    path: &'a P,
-    buffer: &'de mut String,
-) -> Result<T, Error>
+pub(crate) fn read_toml_file<P: ?Sized, T>(path: &P, buffer: &mut String) -> Result<T, Error>
 where
     P: AsRef<path::Path>,
-    T: Deserialize<'de>,
+    T: serde::de::DeserializeOwned,
 {
     let mut configuration_file: fs::File = match fs::OpenOptions::new().read(true).open(path) {
         Ok(val) => val,
@@ -69,7 +61,7 @@ where
     };
 
     match configuration_file.read_to_string(buffer) {
-        Ok(_bytes) => toml::from_str(buffer.as_str()),
+        Ok(_bytes) => toml::from_str(buffer),
         Err(error) => panic!(
             "The data in this stream is not valid UTF-8.\nSee error: '{}'\n",
             error
@@ -88,10 +80,7 @@ mod deserialize {
         let s = Vec::<String>::deserialize(deserializer)?;
         s.into_iter()
             .map(|s| {
-                #[cfg(not(windows))]
-                return expanduser::expanduser(&s).map_err(serde::de::Error::custom);
-                #[cfg(windows)]
-                return Ok(s.into());
+                return expanduser::expanduser(s).map_err(serde::de::Error::custom);
             })
             .collect()
     }
