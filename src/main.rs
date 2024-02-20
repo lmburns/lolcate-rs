@@ -1,14 +1,14 @@
 use std::{
     collections::HashMap,
     env, fs,
-    io::{self, Write},
+    io::{self, prelude::*, Write},
     path::{Path, PathBuf},
     process, str, thread,
 };
 
 use anyhow::Result;
 use bstr::io::BufReadExt;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use colored::Colorize;
 use crossbeam_channel as channel;
 use file_type_enum::FileType;
@@ -16,12 +16,8 @@ use lscolors::{LsColors, Style};
 use lz4::EncoderBuilder;
 use once_cell::sync::Lazy;
 use regex::{Regex, RegexBuilder};
-
-mod cli;
-mod config;
-
-use crate::cli::{Args, MimeChoices};
-use crate::config::read_toml_file;
+use serde::Deserialize;
+use toml::de::Error;
 
 static GLOBAL_CONFIG_TEMPLATE: &str = r#"[types]
 # Definition of custom path name types
@@ -84,6 +80,134 @@ macro_rules! greenify {
     };
 }
 
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+pub enum MimeChoices {
+    F,
+    D,
+    Dir,
+    File,
+    #[default]
+    Any,
+}
+
+#[derive(Parser)]
+#[command(name = "lolcate")]
+#[command(version = "0.2")]
+pub struct Args {
+    /// Create a database
+    #[arg(long, conflicts_with_all = &["pattern", "update", "info"])]
+    pub create: bool,
+
+    /// Display configuration information and existing databases
+    #[arg(long, conflicts_with_all = &["pattern", "update", "create", "database"])]
+    pub info: bool,
+
+    /// Update database
+    #[arg(short = 'u', long, conflicts_with_all = &["pattern", "create", "info"])]
+    pub update: bool,
+
+    /// Database to be used / created
+    #[arg(long = "db", default_value = "default")]
+    pub database: String,
+
+    /// One or several file types to search, separated with commas
+    #[arg(short = 't', long)]
+    pub types: Option<String>,
+
+    /// Filter based on file type
+    #[arg(
+        value_enum,
+        short = 'm',
+        long,
+        default_value = "any",
+        rename_all = "lowercase"
+    )]
+    pub mime: Option<MimeChoices>,
+
+    /// Query / update all databases
+    #[arg(long, conflicts_with_all = &["create", "info"])]
+    pub all: bool,
+
+    /// Search case-insensitively [default: smart-case]
+    #[arg(short = 'i', long = "ignore-case", conflicts_with_all = &["create", "info", "update"])]
+    pub ignore_case: bool,
+
+    /// Match only basename against PATTERN
+    #[arg(short = 'b', long = "basename", conflicts_with_all = &["create", "info", "update"])]
+    pub basename_pattern: Option<Vec<String>>,
+
+    /// PATTERN
+    #[clap(required = false)]
+    pub pattern: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Config {
+    pub description: String,
+    #[serde(deserialize_with = "deserialize::deserialize")]
+    pub dirs: Vec<PathBuf>,
+    #[serde(default)]
+    pub skip: Skip,
+    #[serde(default)]
+    pub gitignore: bool,
+    pub ignore_symlinks: bool,
+    pub ignore_hidden: bool,
+    pub ignore_missing: bool,
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, PartialEq, Copy, Clone)]
+pub enum Skip {
+    #[default]
+    None,
+    Dirs,
+    Files,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct GlobalConfig {
+    pub(crate) types: HashMap<String, String>,
+}
+
+pub(crate) fn read_toml_file<P: ?Sized, T>(path: &P, buffer: &mut String) -> Result<T, Error>
+where
+    P: AsRef<Path>,
+    T: serde::de::DeserializeOwned,
+{
+    let mut configuration_file: fs::File = match fs::OpenOptions::new().read(true).open(path) {
+        Ok(val) => val,
+        Err(_e) => {
+            eprintln!("Cannot open file {}", path.as_ref().display());
+            process::exit(1);
+        }
+    };
+
+    match configuration_file.read_to_string(buffer) {
+        Ok(_bytes) => toml::from_str(buffer),
+        Err(error) => panic!(
+            "The data in this stream is not valid UTF-8.\nSee error: '{}'\n",
+            error
+        ),
+    }
+}
+
+mod deserialize {
+    use serde::de::{Deserialize, Deserializer};
+    use std::path;
+
+    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<Vec<path::PathBuf>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = Vec::<String>::deserialize(deserializer)?;
+        s.into_iter()
+            .map(|s| {
+                return expanduser::expanduser(s).map_err(serde::de::Error::custom);
+            })
+            .collect()
+    }
+}
+
 pub enum WorkerResult {
     Entry(PathBuf),
     Error(ignore::Error),
@@ -107,7 +231,7 @@ impl DirEntry {
             DirEntry::Normal(e) => e.file_type(),
             DirEntry::BrokenSymlink(pathbuf) => {
                 pathbuf.symlink_metadata().map(|m| m.file_type()).ok()
-            },
+            }
         }
     }
 }
@@ -134,14 +258,14 @@ pub fn lolcate_data_path() -> PathBuf {
     path
 }
 
-fn get_db_config(toml_file: &Path) -> config::Config {
+fn get_db_config(toml_file: &Path) -> Config {
     let mut buffer = String::new();
-    let config: config::Config = match read_toml_file(&toml_file, &mut buffer) {
+    let config: Config = match read_toml_file(&toml_file, &mut buffer) {
         Ok(config) => config,
         Err(error) => {
             eprintln!("Invalid TOML: {}", error);
             process::exit(1);
-        },
+        }
     };
     config
 }
@@ -156,14 +280,14 @@ fn create_global_config_if_needed() -> io::Result<()> {
     Ok(())
 }
 
-fn get_global_config(toml_file: &Path) -> config::GlobalConfig {
+fn get_global_config(toml_file: &Path) -> GlobalConfig {
     let mut buffer = String::new();
-    let config: config::GlobalConfig = match read_toml_file(&toml_file, &mut buffer) {
+    let config: GlobalConfig = match read_toml_file(&toml_file, &mut buffer) {
         Ok(config) => config,
         Err(error) => {
             print_err!("invalid TOML: {}", error);
             process::exit(1);
-        },
+        }
     };
     config
 }
@@ -174,7 +298,7 @@ fn get_types_map() -> HashMap<String, String> {
     _config.types
 }
 
-fn check_db_config(config: &config::Config, toml_file: &Path) {
+fn check_db_config(config: &Config, toml_file: &Path) {
     // Check config
     if config.dirs.is_empty() {
         print_err!(
@@ -292,7 +416,7 @@ fn info_databases() -> io::Result<()> {
     match db_data.len() {
         0 => {
             println!("{}", "No databases found".cyan());
-        },
+        }
         _ => {
             println!("{}", "Databases:".cyan());
             for (name, desc, config, ignores, db_fn) in db_data {
@@ -302,7 +426,7 @@ fn info_databases() -> io::Result<()> {
                 println!("    {}:  {}", "Ignores file".magenta(), ignores);
                 println!("    {}:  {}", "Data file".magenta(), db_fn);
             }
-        },
+        }
     };
 
     let tm = get_types_map();
@@ -312,20 +436,20 @@ fn info_databases() -> io::Result<()> {
     match tm.len() {
         0 => {
             println!("{}", "No file types found".cyan());
-        },
+        }
         _ => {
             println!("{}", "File types:".cyan());
             for (name, glob) in tm {
                 print!("  {}", name.green());
                 println!(": {}", glob.green());
             }
-        },
+        }
     };
     println!();
     Ok(())
 }
 
-pub fn walker(config: &config::Config, database: &str) -> ignore::WalkParallel {
+pub fn walker(config: &Config, database: &str) -> ignore::WalkParallel {
     let paths = &config.dirs;
 
     let mut wd = ignore::WalkBuilder::new(&paths[0]);
@@ -395,10 +519,10 @@ fn update_database(db_name: &str) -> io::Result<()> {
                     if let Ok(t) = FileType::symlink_read_at(&value) {
                         writeln!(encoder, "{},,,{}", &value.display(), t).unwrap();
                     }
-                },
+                }
                 WorkerResult::Error(err) => {
                     print_err!("{}", err.to_string());
-                },
+                }
             }
         }
         let (_output, result) = encoder.finish();
@@ -422,7 +546,7 @@ fn update_database(db_name: &str) -> io::Result<()> {
                                 .map_or(false, |m| m.file_type().is_symlink()) =>
                     {
                         DirEntry::BrokenSymlink(path)
-                    },
+                    }
                     _ => {
                         return match tx.send(WorkerResult::Error(ignore::Error::WithPath {
                             path,
@@ -431,20 +555,20 @@ fn update_database(db_name: &str) -> io::Result<()> {
                             Ok(_) => ignore::WalkState::Continue,
                             Err(_) => ignore::WalkState::Quit,
                         }
-                    },
+                    }
                 },
                 Err(err) => {
                     return match tx.send(WorkerResult::Error(err)) {
                         Ok(_) => ignore::WalkState::Continue,
                         Err(_) => ignore::WalkState::Quit,
                     }
-                },
+                }
             };
 
-            if skip != config::Skip::None || ignore_symlinks {
+            if skip != Skip::None || ignore_symlinks {
                 if let Some(ft) = entry.file_type() {
                     if ft.is_dir() {
-                        if skip == config::Skip::Dirs {
+                        if skip == Skip::Dirs {
                             return ignore::WalkState::Continue;
                         };
 
@@ -452,7 +576,7 @@ fn update_database(db_name: &str) -> io::Result<()> {
                         if cachedir::is_tagged(entry.path()).unwrap() {
                             return ignore::WalkState::Continue;
                         }
-                    } else if skip == config::Skip::Files {
+                    } else if skip == Skip::Files {
                         return ignore::WalkState::Continue;
                     }
                     if ignore_symlinks && ft.is_symlink() {
@@ -484,7 +608,7 @@ fn build_regex(pattern: String, ignore_case: bool) -> Regex {
         Err(error) => {
             print_err!("invalid regex: {}", error);
             process::exit(1);
-        },
+        }
     }
 }
 
