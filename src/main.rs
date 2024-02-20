@@ -38,13 +38,6 @@ dirs = [
   # "/second/dir"
 ]
 
-# Set to "Dirs" or "Files" to skip directories or files.
-# If unset, or set to "None", both files and directories will be included.
-# skip = "Dirs"
-
-# Set to true if you want skip symbolic links
-ignore_symlinks = false
-
 # Set to true if you want to ignore hidden files and directories
 ignore_hidden = false
 
@@ -147,21 +140,10 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize::deserialize")]
     pub dirs: Vec<PathBuf>,
     #[serde(default)]
-    pub skip: Skip,
-    #[serde(default)]
     pub gitignore: bool,
-    pub ignore_symlinks: bool,
     pub ignore_hidden: bool,
     pub ignore_missing: bool,
     pub color: Option<String>,
-}
-
-#[derive(Debug, Default, Deserialize, PartialEq, Copy, Clone)]
-pub enum Skip {
-    #[default]
-    None,
-    Dirs,
-    Files,
 }
 
 #[derive(Debug, Deserialize)]
@@ -456,7 +438,7 @@ pub fn walker(config: &Config, database: &str) -> ignore::WalkParallel {
 
     wd.hidden(config.ignore_hidden) // Whether to ignore hidden files
         .parents(false) // Don't read ignore files from parent directories
-        .follow_links(!config.ignore_symlinks) // Follow symbolic links
+        .follow_links(true) // Follow symbolic links
         .ignore(true) // Don't read .ignore files
         .git_global(config.gitignore) // Don't read global gitignore file
         .git_ignore(config.gitignore) // Don't read .gitignore files
@@ -494,8 +476,6 @@ fn update_database(db_name: &str) -> io::Result<()> {
     let config = get_db_config(&config_fn);
     check_db_config(&config, &config_fn);
 
-    let skip = config.skip;
-    let ignore_symlinks = config.ignore_symlinks;
     let db_path = db_fn(db_name);
     let parent_path = db_path.parent().unwrap();
     if !parent_path.exists() {
@@ -565,26 +545,9 @@ fn update_database(db_name: &str) -> io::Result<()> {
                 }
             };
 
-            if skip != Skip::None || ignore_symlinks {
-                if let Some(ft) = entry.file_type() {
-                    if ft.is_dir() {
-                        if skip == Skip::Dirs {
-                            return ignore::WalkState::Continue;
-                        };
-
-                        // Ignore CACHEDIR.tag files.
-                        if cachedir::is_tagged(entry.path()).unwrap() {
-                            return ignore::WalkState::Continue;
-                        }
-                    } else if skip == Skip::Files {
-                        return ignore::WalkState::Continue;
-                    }
-                    if ignore_symlinks && ft.is_symlink() {
-                        return ignore::WalkState::Continue;
-                    }
-                } else {
-                    return ignore::WalkState::Continue;
-                }
+            // Ignore CACHEDIR.tag files.
+            if cachedir::is_tagged(entry.path()).unwrap() {
+                return ignore::WalkState::Continue;
             }
 
             match tx.send(WorkerResult::Entry(entry.path().to_owned())) {
