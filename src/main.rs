@@ -6,6 +6,7 @@ use std::{
     process, str,
     sync::{Arc, Mutex, OnceLock},
     thread,
+    time::{Duration, SystemTime},
 };
 
 use anyhow::{Context, Result};
@@ -19,8 +20,9 @@ use figment::{
 };
 use file_type_enum::FileType;
 use home_dir::HomeDirExt;
-use lscolors::{LsColors, Style};
+use indicatif::{ProgressBar, ProgressStyle};
 use lz4::EncoderBuilder;
+use num_format::{Locale, ToFormattedString};
 use regex::{Regex, RegexBuilder};
 use serde::Deserialize;
 
@@ -50,12 +52,6 @@ macro_rules! print_err {
     ($($err:tt)*) => ({
         eprintln!("{}: {}", "Error".red().bold(), format!($($err)*));
     })
-}
-
-macro_rules! greenify {
-    ($g:expr) => {
-        $g.display().to_string().green()
-    };
 }
 
 #[derive(Parser)]
@@ -95,10 +91,15 @@ pub struct Args {
     pub pattern: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct LocalConfig {
     pub description: String,
     pub dirs: Vec<PathBuf>,
+}
+
+pub enum PathType {
+    Config,
+    Data,
 }
 
 pub enum WorkerResult {
@@ -129,283 +130,353 @@ impl DirEntry {
     }
 }
 
-pub fn lolcate_config_path() -> PathBuf {
-    let xdg_dir = xdg::BaseDirectories::with_prefix("lolcate")
-        .context("Failed get config directory")
-        .unwrap();
-
-    xdg_dir.get_config_home()
+#[derive(Debug, Default, Deserialize)]
+pub struct Database {
+    pub name: String,
+    pub description: String,
+    pub root: PathBuf,
+    pub config: PathBuf,
+    pub ignores: PathBuf,
+    pub data: PathBuf,
+    pub files: usize,
 }
 
-pub fn lolcate_data_path() -> PathBuf {
-    let xdg_dir = xdg::BaseDirectories::with_prefix("lolcate")
-        .context("Failed get config directory")
-        .unwrap();
+impl Database {
+    pub fn new(name: &str) -> Self {
+        let config = Self::xdg_path(PathType::Config).unwrap();
+        let data = Self::xdg_path(PathType::Data).unwrap();
 
-    xdg_dir.get_data_home()
-}
+        let config_path = config.join(name).join("config.toml");
+        let database_path = data.join(name).join("db.lz4");
 
-fn get_db_config(path: &Path) -> Result<LocalConfig> {
-    let xdg_dir =
-        xdg::BaseDirectories::with_prefix("lolcate").context("Failed get config directory")?;
+        let description = Self::config(name).unwrap_or_default().description;
 
-    let filename = xdg_dir.place_config_file(path)?;
+        let lines = if database_path.exists() {
+            let input_file = fs::File::open(&database_path).unwrap();
+            let decoder = lz4::Decoder::new(input_file).unwrap();
+            let reader = io::BufReader::new(decoder);
 
-    Ok(Figment::new().merge(Toml::file(filename)).extract()?)
-}
+            reader.byte_lines().count()
+        } else {
+            0
+        };
 
-fn config_fn(db_name: &str) -> PathBuf {
-    let mut _fn = lolcate_config_path();
-    _fn.push(db_name);
-    _fn.push("config.toml");
-    _fn
-}
-
-fn db_fn(db_name: &str) -> PathBuf {
-    let mut _fn = lolcate_data_path();
-    _fn.push(db_name);
-    _fn.push("db.lz4");
-    _fn
-}
-
-fn ignores_fn(db_name: &str) -> PathBuf {
-    let mut _fn = lolcate_config_path();
-    _fn.push(db_name);
-    _fn.push("ignores");
-    _fn
-}
-
-fn create_database(db_name: &str) -> io::Result<()> {
-    let mut db_dir = lolcate_data_path();
-
-    db_dir.push(db_name);
-
-    if db_dir.exists() {
-        print_err!("database {} already exists", &db_name.green());
-        process::exit(1);
-    }
-
-    let config_fn = config_fn(db_name);
-    fs::create_dir_all(config_fn.parent().unwrap())?;
-
-    let mut f = fs::File::create(&config_fn)?;
-    f.write_all(PROJECT_CONFIG_TEMPLATE.as_bytes())?;
-
-    let ignores_fn = ignores_fn(db_name);
-    f = fs::File::create(&ignores_fn)?;
-    f.write_all(PROJECT_IGNORE_TEMPLATE.as_bytes())?;
-
-    println!("Created database {}.\nPlease edit:", db_name.green().bold());
-    println!("- the configuration file: {}", greenify!(config_fn));
-    println!("- the ignores file:       {}", greenify!(ignores_fn));
-    process::exit(0);
-}
-
-fn database_names(path: PathBuf) -> Vec<String> {
-    let mut _dbs: Vec<String> = Vec::new();
-    let walker = walkdir::WalkDir::new(path).min_depth(1).into_iter();
-    for entry in walker.filter_entry(|e| e.file_type().is_dir()) {
-        if let Some(db_name) = entry.unwrap().file_name().to_str() {
-            _dbs.push(db_name.to_string());
-        }
-    }
-    _dbs
-}
-
-fn info_databases() -> io::Result<()> {
-    struct DatabaseInfo {
-        name: String,
-        description: String,
-        config: String,
-        ignores: String,
-        data: String,
-    }
-
-    let mut databases: Vec<DatabaseInfo> = vec![];
-
-    let walker = walkdir::WalkDir::new(lolcate_config_path())
-        .min_depth(1)
-        .into_iter();
-
-    for entry in walker.filter_entry(|e| e.file_type().is_dir()) {
-        if let Some(db_name) = entry.unwrap().file_name().to_str() {
-            let config_fn = config_fn(db_name);
-            let config = get_db_config(&config_fn).unwrap();
-            let mut db_fn = lolcate_data_path();
-
-            db_fn.push(db_name);
-
-            databases.push(DatabaseInfo {
-                name: db_name.to_string(),
-                description: config.description,
-                config: config_fn.display().to_string(),
-                ignores: ignores_fn(db_name).display().to_string(),
-                data: db_fn.display().to_string(),
-            });
+        Self {
+            name: name.to_string(),
+            description,
+            root: config.join(name),
+            config: config_path,
+            ignores: config.join(name).join("ignores"),
+            data: database_path,
+            files: lines,
         }
     }
 
-    match databases.len() {
-        0 => println!("{}", "No databases found".cyan()),
-        _ => {
-            println!("{}", "Databases:".cyan());
-            for db in databases {
-                println!("  {}", db.name.green());
-                println!("    Description: {}", db.description);
-                println!("         Config: {}", db.config);
-                println!("        Ignores: {}", db.ignores);
-                println!("  Database File: {}", db.data);
+    pub fn all() -> Vec<Database> {
+        let config = Self::xdg_path(PathType::Config).unwrap();
+
+        walkdir::WalkDir::new(config)
+            .min_depth(1)
+            .into_iter()
+            .filter_map(|entry| entry.ok())
+            .filter(|e| e.file_type().is_dir())
+            .map(|e| Database::new(e.path().file_name().unwrap().to_str().unwrap()))
+            .collect()
+    }
+
+    fn xdg_path(path_type: PathType) -> Result<PathBuf> {
+        let xdg_dir =
+            xdg::BaseDirectories::with_prefix("lolcate").context("Failed to get XDG directory")?;
+
+        Ok(match path_type {
+            PathType::Config => xdg_dir.get_config_home(),
+            PathType::Data => xdg_dir.get_data_home(),
+        })
+    }
+
+    pub fn config(name: &str) -> Result<LocalConfig> {
+        let filename = Self::xdg_path(PathType::Config)?
+            .join(name)
+            .join("config.toml");
+
+        Ok(Figment::from(Toml::file(filename)).extract()?)
+    }
+
+    pub fn create(&self) -> io::Result<()> {
+        if self.root.exists() {
+            print_err!("database {} already exists", &self.name.green());
+            process::exit(1);
+        }
+
+        fs::create_dir_all(&self.root)?;
+
+        let mut f = fs::File::create(&self.config)?;
+        f.write_all(PROJECT_CONFIG_TEMPLATE.as_bytes())?;
+
+        f = fs::File::create(&self.ignores)?;
+        f.write_all(PROJECT_IGNORE_TEMPLATE.as_bytes())?;
+
+        println!(
+            "Created database {}.\nPlease edit:",
+            self.name.green().bold()
+        );
+        println!(
+            "- the configuration file: {}",
+            self.config.to_string_lossy().green()
+        );
+        println!(
+            "- the ignores file:       {}",
+            self.ignores.to_string_lossy().green()
+        );
+
+        process::exit(0);
+    }
+
+    pub fn info() -> io::Result<()> {
+        let databases = Self::all();
+
+        match databases.len() {
+            0 => println!("{}", "No databases found".cyan()),
+            _ => {
+                println!("{}", "Databases:".cyan());
+
+                for db in databases {
+                    println!("  {}", db.name.green());
+                    println!("    Description: {}", db.description);
+                    println!("         Config: {:?}", db.config);
+                    println!("        Ignores: {:?}", db.ignores);
+                    println!("  Database File: {:?}", db.data);
+                    println!(
+                        "  Files Indexed: {}",
+                        db.files.to_formatted_string(&Locale::en)
+                    );
+                }
             }
+        };
+
+        println!();
+        Ok(())
+    }
+
+    fn is_apple_bundle(entry: &DirEntry) -> bool {
+        if let Some(path_str) = entry.path().to_str() {
+            return path_str.contains(".app/")
+                || path_str.contains(".bundle/")
+                || path_str.contains(".fcpbundle/")
+                || path_str.contains(".framework/");
         }
-    };
 
-    println!();
-    Ok(())
-}
+        false
+    }
 
-pub fn walker(config: &LocalConfig, database: &str) -> ignore::WalkParallel {
-    let paths: Vec<PathBuf> = config
-        .dirs
-        .iter()
-        .map(|p| p.expand_home().unwrap())
-        .collect();
+    pub fn paths(&self) -> Result<Vec<PathBuf>> {
+        let paths = Self::config(&self.name)?
+            .dirs
+            .iter()
+            .filter_map(|p| p.expand_home().ok())
+            .collect::<Vec<PathBuf>>();
+        Ok(paths)
+    }
 
-    let mut wd = ignore::WalkBuilder::new(&paths[0]);
+    pub fn query(&self, patterns_re: &[Regex]) -> std::io::Result<()> {
+        if !self.data.parent().unwrap().exists() {
+            print_err!(
+                "Database {} doesn't exist. Perhaps you forgot to run lolcate --create {} ?",
+                &self.name.green(),
+                &self.name.green()
+            );
+            process::exit(1);
+        }
 
-    wd.hidden(false)
-        .hidden(false)
-        .follow_links(false)
-        .git_global(true);
+        if !self.data.exists() {
+            print_err!(
+                "Database {} is empty. Perhaps you forgot to run lolcate --update {} ?",
+                &self.name.green(),
+                &self.name.green()
+            );
+            process::exit(1);
+        }
 
-    for path in &paths[1..] {
-        if path.exists() {
+        let mut reader = io::BufReader::new(lz4::Decoder::new(fs::File::open(&self.data)?)?);
+        let mut writer = io::BufWriter::new(io::stdout().lock());
+
+        reader.for_byte_line(|_line| {
+            let line = str::from_utf8(_line).unwrap();
+
+            for re in patterns_re.iter() {
+                if !re.is_match(line) {
+                    return Ok(true);
+                }
+
+                let mut highlighted = String::new();
+                let mut last_end = 0;
+
+                for mat in re.find_iter(&line) {
+                    highlighted.push_str(&line[last_end..mat.start()]);
+                    highlighted.push_str("\x1b[31m");
+                    highlighted.push_str(mat.as_str());
+                    highlighted.push_str("\x1b[0m");
+                    last_end = mat.end();
+                }
+
+                highlighted.push_str(&line[last_end..]);
+
+                let _ = writer.write_all(highlighted.as_bytes());
+                let _ = writer.write_all(b"\n");
+            }
+
+            Ok(true)
+        })
+    }
+
+    fn walker(&self) -> ignore::WalkParallel {
+        let mut paths = self.paths().unwrap().into_iter();
+
+        let mut wd = ignore::WalkBuilder::new(paths.next().expect("No paths provided"));
+
+        wd.hidden(false)
+            .hidden(false)
+            .follow_links(false)
+            .git_global(true);
+
+        for path in paths.filter(|path| path.exists()) {
             wd.add(path);
         }
+
+        wd.add_ignore(&self.ignores);
+        wd.threads(num_cpus::get());
+        wd.build_parallel()
     }
 
-    wd.add_ignore(ignores_fn(database));
-    wd.threads(num_cpus::get());
-    wd.build_parallel()
-}
-
-fn update_database(db_name: &str) -> io::Result<()> {
-    let config_fn = config_fn(db_name);
-    if !config_fn.exists() {
-        print_err!(
+    pub fn update(&self) -> io::Result<()> {
+        if !self.config.exists() {
+            print_err!(
             "Config file not found for database {}.\n Perhaps you forgot to run lolcate --create \
              {} ?",
-            &db_name.green(),
-            &db_name.green()
+            &self.name.green(),
+            &self.name.green()
         );
-        process::exit(1);
-    }
+            process::exit(1);
+        }
 
-    let config = get_db_config(&config_fn).unwrap();
+        if self.paths().unwrap_or_default().is_empty() {
+            print_err!(
+                "{} needs at least one directory to scan",
+                self.config.to_string_lossy().green()
+            );
+            process::exit(1);
+        }
 
-    if config.dirs.is_empty() {
-        print_err!(
-            "{} needs at least one directory to scan",
-            greenify!(config_fn)
-        );
-        process::exit(1);
-    }
+        fs::create_dir_all(self.data.parent().unwrap())?;
 
-    let db_path = db_fn(db_name);
+        let output_fn = fs::File::create(&self.data)?;
+        let (tx, rx) = channel::bounded::<WorkerResult>(8 * 1024);
 
-    fs::create_dir_all(db_path.parent().unwrap())?;
+        let s = spinner();
+        let start_time = SystemTime::now();
 
-    let output_fn = fs::File::create(db_path)?;
-    let (tx, rx) = channel::bounded::<WorkerResult>(8000);
+        s.set_message(format!("{} {}...", "Updating".green().bold(), self.name));
 
-    println!("{} {}...", "Updating".green().bold(), db_name);
+        let stdout_thread = thread::spawn(move || {
+            let mut encoder = EncoderBuilder::new()
+                .level(3)
+                .block_mode(lz4::BlockMode::Linked)
+                .block_size(lz4::BlockSize::Max256KB)
+                .build(output_fn)?;
 
-    let stdout_thread = thread::spawn(move || {
-        let mut encoder = EncoderBuilder::new()
-            .level(3)
-            .block_mode(lz4::BlockMode::Linked)
-            .block_size(lz4::BlockSize::Max256KB)
-            .build(output_fn)?;
-
-        for entry in rx {
-            match entry {
-                WorkerResult::Entry(value) => {
-                    if let Ok(t) = FileType::symlink_read_at(&value) {
-                        writeln!(encoder, "{},,,{}", &value.display(), t).unwrap();
+            for entry in rx {
+                match entry {
+                    WorkerResult::Entry(value) => {
+                        if let Ok(_) = FileType::symlink_read_at(&value) {
+                            writeln!(encoder, "{value:?}").unwrap();
+                        }
                     }
-                }
-                WorkerResult::Error(err) => {
-                    print_err!("{}", err.to_string());
+                    WorkerResult::Error(err) => print_err!("{}", err.to_string()),
                 }
             }
-        }
-        let (_output, result) = encoder.finish();
-        result
-    });
+            let (_output, result) = encoder.finish();
+            result
+        });
 
-    let cache_dir: Arc<Mutex<BTreeSet<PathBuf>>> = Arc::new(Mutex::new(BTreeSet::new()));
+        let cache_dir: Arc<Mutex<BTreeSet<PathBuf>>> = Arc::new(Mutex::new(BTreeSet::new()));
 
-    walker(&config, db_name).run(|| {
-        let tx = tx.clone();
-        let ig = cache_dir.clone();
+        self.walker().run(|| {
+            let tx = tx.clone();
+            let ig = cache_dir.clone();
 
-        Box::new(move |_entry| {
-            //: Result<ignore::DirEntry,ignore::Error>
+            Box::new(move |_entry| {
+                //: Result<ignore::DirEntry,ignore::Error>
 
-            // Taken from sharkdp/fd
-            let entry = match _entry {
-                Ok(e) => DirEntry::Normal(e),
-                Err(ignore::Error::WithPath { path, err: error }) => match error.as_ref() {
-                    ignore::Error::Io(io_err)
-                        if io_err.kind() == io::ErrorKind::NotFound
-                            && path
-                                .symlink_metadata()
-                                .ok()
-                                .map_or(false, |m| m.file_type().is_symlink()) =>
-                    {
-                        DirEntry::BrokenSymlink(path)
-                    }
-                    _ => {
-                        return match tx.send(WorkerResult::Error(ignore::Error::WithPath {
-                            path,
-                            err: error,
-                        })) {
+                // Taken from sharkdp/fd
+                let entry = match _entry {
+                    Ok(e) => DirEntry::Normal(e),
+                    Err(ignore::Error::WithPath { path, err: error }) => match error.as_ref() {
+                        ignore::Error::Io(io_err)
+                            if io_err.kind() == io::ErrorKind::NotFound
+                                && path
+                                    .symlink_metadata()
+                                    .ok()
+                                    .map_or(false, |m| m.file_type().is_symlink()) =>
+                        {
+                            DirEntry::BrokenSymlink(path)
+                        }
+                        _ => {
+                            return match tx.send(WorkerResult::Error(ignore::Error::WithPath {
+                                path,
+                                err: error,
+                            })) {
+                                Ok(_) => ignore::WalkState::Continue,
+                                Err(_) => ignore::WalkState::Quit,
+                            }
+                        }
+                    },
+                    Err(err) => {
+                        return match tx.send(WorkerResult::Error(err)) {
                             Ok(_) => ignore::WalkState::Continue,
                             Err(_) => ignore::WalkState::Quit,
                         }
                     }
-                },
-                Err(err) => {
-                    return match tx.send(WorkerResult::Error(err)) {
-                        Ok(_) => ignore::WalkState::Continue,
-                        Err(_) => ignore::WalkState::Quit,
+                };
+
+                if Self::is_apple_bundle(&entry) {
+                    return ignore::WalkState::Continue;
+                }
+
+                if let Some(mut ignored) = ig.lock().ok() {
+                    if cachedir::is_tagged(&entry.path()).unwrap_or(false) {
+                        ignored.insert(entry.path().to_owned());
+                        return ignore::WalkState::Continue;
+                    }
+
+                    // Check if the parent directory is ignored.
+                    if ignored
+                        .iter()
+                        .any(|ignored_path| entry.path().starts_with(ignored_path))
+                    {
+                        return ignore::WalkState::Continue;
                     }
                 }
-            };
 
-            if let Some(mut ignored) = ig.lock().ok() {
-                if cachedir::is_tagged(&entry.path()).unwrap_or(false) {
-                    ignored.insert(entry.path().to_owned());
-                    return ignore::WalkState::Continue;
+                match tx.send(WorkerResult::Entry(entry.path().to_owned())) {
+                    Ok(_) => ignore::WalkState::Continue,
+                    Err(_) => ignore::WalkState::Quit,
                 }
+            })
+        });
 
-                // Check if the parent directory is ignored.
-                if ignored
-                    .iter()
-                    .any(|ignored_path| entry.path().starts_with(ignored_path))
-                {
-                    return ignore::WalkState::Continue;
-                }
-            }
+        drop(tx);
 
-            match tx.send(WorkerResult::Entry(entry.path().to_owned())) {
-                Ok(_) => ignore::WalkState::Continue,
-                Err(_) => ignore::WalkState::Quit,
-            }
-        })
-    });
+        let _ = stdout_thread.join().unwrap();
 
-    drop(tx);
-    stdout_thread.join().unwrap()
+        s.finish_with_message(format!(
+            "{} {} in {}",
+            "Updated".green().bold(),
+            self.name,
+            humantime::format_duration(SystemTime::now().duration_since(start_time).unwrap()),
+        ));
+
+        Ok(())
+    }
 }
 
 fn build_regex(pattern: String, ignore_case: bool) -> Regex {
@@ -423,111 +494,59 @@ fn build_regex(pattern: String, ignore_case: bool) -> Regex {
     }
 }
 
-fn lookup_database(db_name: &str, patterns_re: &[Regex]) -> std::io::Result<()> {
-    let db_file = db_fn(db_name);
-    if !db_file.parent().unwrap().exists() {
-        print_err!(
-            "Database {} doesn't exist. Perhaps you forgot to run lolcate --create {} ?",
-            &db_name.green(),
-            &db_name.green()
-        );
-        process::exit(1);
-    }
+fn spinner() -> ProgressBar {
+    let pb = ProgressBar::new_spinner();
 
-    if !db_file.exists() {
-        print_err!(
-            "Database {} is empty. Perhaps you forgot to run lolcate --update {} ?",
-            &db_name.green(),
-            &db_name.green()
-        );
-        process::exit(1);
-    }
+    pb.enable_steady_tick(Duration::from_millis(100));
 
-    let input_file = fs::File::open(db_file)?;
-    let decoder = lz4::Decoder::new(input_file)?;
-    let mut reader = io::BufReader::new(decoder);
+    pb.set_style(
+        ProgressStyle::with_template("{msg} {spinner:.cyan.bold}")
+            .unwrap()
+            .tick_chars("-\\|/")
+    );
 
-    let stdout = io::stdout();
-    let lock = stdout.lock();
-    let mut w = io::BufWriter::new(lock); // DEFAULT_BUF_SIZE: usize = 8 * 1024;
-
-    reader.for_byte_line(|_line| {
-        let line = str::from_utf8(_line).unwrap();
-
-        if !patterns_re.iter().all(|re| re.is_match(line)) {
-            return Ok(true);
-        }
-
-        {
-            let _ = w.write_all(fmt_output(line.split(",,,").collect::<Vec<_>>()[0]).as_bytes());
-            let _ = w.write_all(b"\n");
-        }
-        Ok(true)
-    })
-}
-
-fn fmt_output<P: AsRef<Path>>(path: P) -> String {
-    let lscolors = LsColors::from_env().unwrap_or_default();
-
-    lscolors
-        .style_for_path_components(path.as_ref())
-        .fold(Vec::new(), |mut acc, (component, style)| {
-            acc.push(
-                style
-                    .map_or(ansi_term::Color::Blue.bold(), Style::to_ansi_term_style)
-                    .paint(component.to_string_lossy())
-                    .to_string(),
-            );
-            acc
-        })
-        .join("")
+    pb
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
 
     let databases = if args.all {
-        database_names(lolcate_config_path())
+        Database::all()
     } else {
-        vec![args.database.clone()]
+        vec![Database::new(&args.database)]
     };
 
     if args.create {
-        create_database(&args.database)?;
-        process::exit(0);
-    }
-
-    if args.update {
         for db in databases {
-            update_database(&db)?;
+            db.create()?
         }
-        process::exit(0);
-    }
+    } else if args.update {
+        for db in databases {
+            db.update()?
+        }
+    } else if args.info {
+        Database::info()?;
+    } else {
+        let ignore_case = args.ignore_case;
 
-    if args.info {
-        info_databases()?;
-        process::exit(0);
-    }
+        let patterns_re = args
+            .pattern
+            .iter()
+            .map(|p| build_regex(p.to_string(), ignore_case));
 
-    // lookup
-    let ignore_case = args.ignore_case;
+        let bn_patterns_re = args
+            .basename_pattern
+            .unwrap_or_default()
+            .iter()
+            .map(|p| build_regex(format!("/[^/]*{}[^/]*$", p), ignore_case))
+            .collect::<Vec<_>>();
 
-    let patterns_re = args
-        .pattern
-        .iter()
-        .map(|p| build_regex(p.to_string(), ignore_case));
+        let chained = &patterns_re.chain(bn_patterns_re).collect::<Vec<_>>();
 
-    let bn_patterns_re = args
-        .basename_pattern
-        .unwrap_or_default()
-        .iter()
-        .map(|p| build_regex(format!("/[^/]*{}[^/]*$", p), ignore_case))
-        .collect::<Vec<_>>();
-
-    let chained = &patterns_re.chain(bn_patterns_re).collect::<Vec<_>>();
-
-    for db_name in databases {
-        lookup_database(&db_name, chained)?;
+        for db in databases {
+            db.query(chained)?
+        }
     }
 
     Ok(())

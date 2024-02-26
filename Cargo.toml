@@ -12,7 +12,6 @@ repository = "https://github.com/dsully/lolcate-rs"
 version = "0.2.0"
 
 [dependencies]
-ansi_term = "0.12.1"
 anyhow = "1.0.79"
 bstr = "1.9"
 cachedir = "0"
@@ -22,9 +21,11 @@ crossbeam-channel = "0.5"
 figment = { version = "0.10.14", features = [ "toml" ] }
 file_type_enum = "2.0.1"
 home-dir = "0.1.0"
+humantime = "2.1.0"
 ignore = "0.4"
-lscolors = { version = "0.17.0", features = [ "ansi_term" ] }
+indicatif = "0.17.8"
 lz4 = "1"
+num-format = "0.4"
 num_cpus = "1.16.0"
 regex = "1"
 serde = { version = "1.0", features = [ "derive" ] }
