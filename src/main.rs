@@ -19,6 +19,7 @@ use figment::{
     Figment,
 };
 use file_type_enum::FileType;
+use fs2::FileExt;
 use home_dir::HomeDirExt;
 use indicatif::{ProgressBar, ProgressStyle};
 use lz4::EncoderBuilder;
@@ -31,15 +32,15 @@ static UPPER_RE: OnceLock<Regex> = OnceLock::new();
 static PROJECT_CONFIG_TEMPLATE: &str = r#"
 description = ""
 
-# Directories to index.
-dirs = [
+# Paths to index.
+paths = [
   # "~/first/dir",
   # "/second/dir"
 ]
 
 "#;
 
-static PROJECT_IGNORE_TEMPLATE: &str = r#"# Dirs / files to ignore.
+static PROJECT_IGNORE_TEMPLATE: &str = r#"# Paths / files to ignore.
 # Use the same syntax as gitignore(5).
 # Common patterns:
 #
@@ -94,7 +95,7 @@ pub struct Args {
 #[derive(Debug, Default, Deserialize)]
 pub struct LocalConfig {
     pub description: String,
-    pub dirs: Vec<PathBuf>,
+    pub paths: Vec<PathBuf>,
 }
 
 pub enum PathType {
@@ -216,18 +217,10 @@ impl Database {
         f = fs::File::create(&self.ignores)?;
         f.write_all(PROJECT_IGNORE_TEMPLATE.as_bytes())?;
 
-        println!(
-            "Created database {}.\nPlease edit:",
-            self.name.green().bold()
-        );
-        println!(
-            "- the configuration file: {}",
-            self.config.to_string_lossy().green()
-        );
-        println!(
-            "- the ignores file:       {}",
-            self.ignores.to_string_lossy().green()
-        );
+        println!("Created database {}.", self.name.green().bold());
+        println!("Please edit:\n");
+        println!("- the configuration file: {}", self.config.display());
+        println!("- the ignores file:       {}", self.ignores.display());
 
         process::exit(0);
     }
@@ -243,12 +236,16 @@ impl Database {
                 for db in databases {
                     println!("  {}", db.name.green());
                     println!("    Description: {}", db.description);
-                    println!("         Config: {:?}", db.config);
-                    println!("        Ignores: {:?}", db.ignores);
-                    println!("  Database File: {:?}", db.data);
+                    println!("         Config: {}", db.config.display());
+                    println!("        Ignores: {}", db.ignores.display());
+                    println!("  Database File: {}", db.data.display());
                     println!(
-                        "  Files Indexed: {}",
+                        "  Paths Indexed: {}",
                         db.files.to_formatted_string(&Locale::en)
+                    );
+                    println!(
+                        "   Last Updated: {}",
+                        humantime::format_rfc3339(db.data.metadata().unwrap().modified().unwrap())
                     );
                 }
             }
@@ -271,7 +268,7 @@ impl Database {
 
     pub fn paths(&self) -> Result<Vec<PathBuf>> {
         let paths = Self::config(&self.name)?
-            .dirs
+            .paths
             .iter()
             .filter_map(|p| p.expand_home().ok())
             .collect::<Vec<PathBuf>>();
@@ -300,12 +297,14 @@ impl Database {
         let mut reader = io::BufReader::new(lz4::Decoder::new(fs::File::open(&self.data)?)?);
         let mut writer = io::BufWriter::new(io::stdout().lock());
 
+        let mut matches: Vec<String> = vec![];
+
         reader.for_byte_line(|_line| {
             let line = str::from_utf8(_line).unwrap();
 
             for re in patterns_re.iter() {
                 if !re.is_match(line) {
-                    return Ok(true);
+                    continue;
                 }
 
                 let mut highlighted = String::new();
@@ -321,12 +320,20 @@ impl Database {
 
                 highlighted.push_str(&line[last_end..]);
 
-                let _ = writer.write_all(highlighted.as_bytes());
-                let _ = writer.write_all(b"\n");
+                matches.push(highlighted);
             }
 
             Ok(true)
-        })
+        })?;
+
+        matches.sort_by(|a, b| a.cmp(b));
+
+        for m in matches {
+            let _ = writer.write_all(m.as_bytes());
+            let _ = writer.write_all(b"\n");
+        }
+
+        Ok(())
     }
 
     fn walker(&self) -> ignore::WalkParallel {
@@ -362,14 +369,22 @@ impl Database {
         if self.paths().unwrap_or_default().is_empty() {
             print_err!(
                 "{} needs at least one directory to scan",
-                self.config.to_string_lossy().green()
+                self.config.display().to_string().green()
             );
             process::exit(1);
         }
 
-        fs::create_dir_all(self.data.parent().unwrap())?;
+        let lockfile = self.data.parent().unwrap().join("lock");
+        let lock = fs::File::create(&lockfile)?;
 
-        let output_fn = fs::File::create(&self.data)?;
+        println!("Waiting for '{}' database lock ...", self.name.green());
+
+        lock.lock_exclusive()?;
+
+        println!("File lock for '{}' acquired!", self.name.green());
+
+        let database = fs::File::create(&self.data)?;
+
         let (tx, rx) = channel::bounded::<WorkerResult>(8 * 1024);
 
         let s = spinner();
@@ -382,13 +397,13 @@ impl Database {
                 .level(3)
                 .block_mode(lz4::BlockMode::Linked)
                 .block_size(lz4::BlockSize::Max256KB)
-                .build(output_fn)?;
+                .build(database)?;
 
             for entry in rx {
                 match entry {
                     WorkerResult::Entry(value) => {
                         if let Ok(_) = FileType::symlink_read_at(&value) {
-                            writeln!(encoder, "{value:?}").unwrap();
+                            writeln!(encoder, "{}", value.display()).unwrap();
                         }
                     }
                     WorkerResult::Error(err) => print_err!("{}", err.to_string()),
@@ -466,7 +481,7 @@ impl Database {
 
         drop(tx);
 
-        let _ = stdout_thread.join().unwrap();
+        stdout_thread.join().unwrap()?;
 
         s.finish_with_message(format!(
             "{} {} in {}",
@@ -474,6 +489,9 @@ impl Database {
             self.name,
             humantime::format_duration(SystemTime::now().duration_since(start_time).unwrap()),
         ));
+
+        lock.unlock()?;
+        fs::remove_file(lockfile)?;
 
         Ok(())
     }
@@ -502,7 +520,7 @@ fn spinner() -> ProgressBar {
     pb.set_style(
         ProgressStyle::with_template("{msg} {spinner:.cyan.bold}")
             .unwrap()
-            .tick_chars("-\\|/")
+            .tick_chars("-\\|/"),
     );
 
     pb

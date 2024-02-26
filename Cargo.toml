@@ -20,6 +20,7 @@ colored = "2"
 crossbeam-channel = "0.5"
 figment = { version = "0.10.14", features = [ "toml" ] }
 file_type_enum = "2.0.1"
+fs2 = "0.4.3"
 home-dir = "0.1.0"
 humantime = "2.1.0"
 ignore = "0.4"
