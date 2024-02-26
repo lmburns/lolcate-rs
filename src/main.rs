@@ -310,7 +310,7 @@ impl Database {
                 let mut highlighted = String::new();
                 let mut last_end = 0;
 
-                for mat in re.find_iter(&line) {
+                for mat in re.find_iter(line) {
                     highlighted.push_str(&line[last_end..mat.start()]);
                     highlighted.push_str("\x1b[31m");
                     highlighted.push_str(mat.as_str());
@@ -326,7 +326,7 @@ impl Database {
             Ok(true)
         })?;
 
-        matches.sort_by(|a, b| a.cmp(b));
+        matches.sort();
 
         for m in matches {
             let _ = writer.write_all(m.as_bytes());
@@ -402,7 +402,7 @@ impl Database {
             for entry in rx {
                 match entry {
                     WorkerResult::Entry(value) => {
-                        if let Ok(_) = FileType::symlink_read_at(&value) {
+                        if FileType::symlink_read_at(&value).is_ok() {
                             writeln!(encoder, "{}", value.display()).unwrap();
                         }
                     }
@@ -457,8 +457,8 @@ impl Database {
                     return ignore::WalkState::Continue;
                 }
 
-                if let Some(mut ignored) = ig.lock().ok() {
-                    if cachedir::is_tagged(&entry.path()).unwrap_or(false) {
+                if let Ok(mut ignored) = ig.lock() {
+                    if cachedir::is_tagged(entry.path()).unwrap_or(false) {
                         ignored.insert(entry.path().to_owned());
                         return ignore::WalkState::Continue;
                     }
