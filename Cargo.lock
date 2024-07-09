@@ -380,6 +380,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2fad85553e09a6f881f739c29f0b00b0f01357c743266d478b68951ce23285f3"
 
 [[package]]
+name = "fs-err"
+version = "2.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "88a41f105fe1d5b6b34b2055e3dc59bb79b46b48b2040b9e6c7b4b5de097aa41"
+dependencies = [
+ "autocfg 1.0.0",
+]
+
+[[package]]
 name = "fs2"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -572,6 +581,7 @@ dependencies = [
  "crossbeam-channel 0.5.0",
  "figment",
  "file_type_enum",
+ "fs-err",
  "fs2",
  "home-dir",
  "humantime",

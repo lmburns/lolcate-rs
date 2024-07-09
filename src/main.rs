@@ -1,6 +1,5 @@
 use std::{
     collections::BTreeSet,
-    fs,
     io::{self, Write},
     path::{Path, PathBuf},
     process, str,
@@ -20,6 +19,7 @@ use figment::{
 };
 use file_type_enum::FileType;
 use fs2::FileExt;
+use fs_err as fs;
 use home_dir::HomeDirExt;
 use indicatif::{ProgressBar, ProgressStyle};
 use lz4::EncoderBuilder;
@@ -68,7 +68,7 @@ pub struct Args {
     pub info: bool,
 
     /// Update database
-    #[arg(short = 'u', long, conflicts_with_all = &["pattern", "create", "info"])]
+    #[arg(short, long, conflicts_with_all = &["pattern", "create", "info"])]
     pub update: bool,
 
     /// Database to be used / created
@@ -80,11 +80,11 @@ pub struct Args {
     pub all: bool,
 
     /// Search case-insensitively [default: smart-case]
-    #[arg(short = 'i', long = "ignore-case", conflicts_with_all = &["create", "info", "update"])]
+    #[arg(short, long, conflicts_with_all = &["create", "info", "update"])]
     pub ignore_case: bool,
 
     /// Match only basename against PATTERN
-    #[arg(short = 'b', long = "basename", conflicts_with_all = &["create", "info", "update"])]
+    #[arg(short, long = "basename", conflicts_with_all = &["create", "info", "update"])]
     pub basename_pattern: Option<Vec<String>>,
 
     /// PATTERN
@@ -121,7 +121,7 @@ impl DirEntry {
         }
     }
 
-    pub fn file_type(&self) -> Option<fs::FileType> {
+    pub fn file_type(&self) -> Option<std::fs::FileType> {
         match self {
             DirEntry::Normal(e) => e.file_type(),
             DirEntry::BrokenSymlink(pathbuf) => {
@@ -374,8 +374,10 @@ impl Database {
             process::exit(1);
         }
 
+        fs::create_dir_all(self.data.parent().unwrap())?;
+
         let lockfile = self.data.parent().unwrap().join("lock");
-        let lock = fs::File::create(&lockfile)?;
+        let lock = std::fs::File::create(&lockfile)?;
 
         println!("Waiting for '{}' database lock ...", self.name.green());
 
