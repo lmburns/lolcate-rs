@@ -9,16 +9,16 @@ license = "GPL-3.0"
 name = "lolcate-rs"
 readme = "README.md"
 repository = "https://github.com/dsully/lolcate-rs"
-version = "0.2.1"
+version = "0.2.2"
 
 [dependencies]
-anyhow = "1.0.79"
-bstr = "1.9"
+anyhow = "1.0.89"
+bstr = "1.10"
 cachedir = "0"
 clap = { version = "4", features = [ "cargo", "derive" ] }
 colored = "2"
 crossbeam-channel = "0.5"
-figment = { version = "0.10.14", features = [ "toml" ] }
+figment = { version = "0.10.19", features = [ "toml" ] }
 file_type_enum = "2.0.1"
 fs-err = "2"
 fs2 = "0.4.3"
@@ -59,7 +59,7 @@ lto = "thin"
 # Config for 'cargo dist'
 [workspace.metadata.dist]
 # The preferred cargo-dist version to use in CI (Cargo.toml SemVer syntax)
-cargo-dist-version = "0.18.0"
+cargo-dist-version = "0.22.1"
 # CI backends to support
 ci = "github"
 # The installers to generate for each app
@@ -70,7 +70,7 @@ tap = "dsully/homebrew-tap"
 targets = [ "aarch64-apple-darwin", "x86_64-unknown-linux-gnu" ]
 # Publish jobs to run in CI
 publish-jobs = [ "homebrew" ]
-# Publish jobs to run in CI
+# Which actions to run on pull requests
 pr-run-mode = "plan"
 
   # Use Apple Silicon runners.

@@ -1,3 +1,10 @@
+#![deny(clippy::all, clippy::pedantic, clippy::unwrap_used)]
+#![allow(
+    clippy::module_name_repetitions,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc
+)]
+
 use std::{
     collections::BTreeSet,
     io::{self, Write},
@@ -40,14 +47,14 @@ paths = [
 
 "#;
 
-static PROJECT_IGNORE_TEMPLATE: &str = r#"# Paths / files to ignore.
+static PROJECT_IGNORE_TEMPLATE: &str = r"# Paths / files to ignore.
 # Use the same syntax as gitignore(5).
 # Common patterns:
 #
 # .git
 # *~
 # target/
-"#;
+";
 
 macro_rules! print_err {
     ($($err:tt)*) => ({
@@ -58,6 +65,7 @@ macro_rules! print_err {
 #[derive(Parser)]
 #[command(name = "lolcate")]
 #[command(version = "0.2")]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Args {
     /// Create a database
     #[arg(long, conflicts_with_all = &["pattern", "update", "info"])]
@@ -98,6 +106,7 @@ pub struct LocalConfig {
     pub paths: Vec<PathBuf>,
 }
 
+#[derive(Clone, Copy)]
 pub enum PathType {
     Config,
     Data,
@@ -114,6 +123,7 @@ pub enum DirEntry {
 }
 
 impl DirEntry {
+    #[must_use]
     pub fn path(&self) -> &Path {
         match self {
             DirEntry::Normal(e) => e.path(),
@@ -121,6 +131,7 @@ impl DirEntry {
         }
     }
 
+    #[must_use]
     pub fn file_type(&self) -> Option<std::fs::FileType> {
         match self {
             DirEntry::Normal(e) => e.file_type(),
@@ -143,9 +154,9 @@ pub struct Database {
 }
 
 impl Database {
-    pub fn new(name: &str) -> Self {
-        let config = Self::xdg_path(PathType::Config).unwrap();
-        let data = Self::xdg_path(PathType::Data).unwrap();
+    pub fn new(name: &str) -> Result<Self> {
+        let config = Self::xdg_path(PathType::Config)?;
+        let data = Self::xdg_path(PathType::Data)?;
 
         let config_path = config.join(name).join("config.toml");
         let database_path = data.join(name).join("db.lz4");
@@ -153,8 +164,8 @@ impl Database {
         let description = Self::config(name).unwrap_or_default().description;
 
         let lines = if database_path.exists() {
-            let input_file = fs::File::open(&database_path).unwrap();
-            let decoder = lz4::Decoder::new(input_file).unwrap();
+            let input_file = fs::File::open(&database_path)?;
+            let decoder = lz4::Decoder::new(input_file)?;
             let reader = io::BufReader::new(decoder);
 
             reader.byte_lines().count()
@@ -162,7 +173,7 @@ impl Database {
             0
         };
 
-        Self {
+        Ok(Self {
             name: name.to_string(),
             description,
             root: config.join(name),
@@ -170,18 +181,27 @@ impl Database {
             ignores: config.join(name).join("ignores"),
             data: database_path,
             files: lines,
-        }
+        })
     }
 
-    pub fn all() -> Vec<Database> {
-        let config = Self::xdg_path(PathType::Config).unwrap();
+    pub fn all() -> Result<Vec<Database>> {
+        let config = Self::xdg_path(PathType::Config)?;
 
         walkdir::WalkDir::new(config)
             .min_depth(1)
             .into_iter()
-            .filter_map(|entry| entry.ok())
+            .filter_map(std::result::Result::ok)
             .filter(|e| e.file_type().is_dir())
-            .map(|e| Database::new(e.path().file_name().unwrap().to_str().unwrap()))
+            .map(|e| {
+                Database::new(
+                    e.path()
+                        .file_name()
+                        .expect("Unable to get file name")
+                        .to_string_lossy()
+                        .to_string()
+                        .as_str(),
+                )
+            })
             .collect()
     }
 
@@ -203,7 +223,7 @@ impl Database {
         Ok(Figment::from(Toml::file(filename)).extract()?)
     }
 
-    pub fn create(&self) -> io::Result<()> {
+    pub fn create(&self) -> Result<()> {
         if self.root.exists() {
             print_err!("database {} already exists", &self.name.green());
             process::exit(1);
@@ -225,29 +245,28 @@ impl Database {
         process::exit(0);
     }
 
-    pub fn info() -> io::Result<()> {
-        let databases = Self::all();
+    pub fn info() -> Result<()> {
+        let databases = Self::all()?;
 
-        match databases.len() {
-            0 => println!("{}", "No databases found".cyan()),
-            _ => {
-                println!("{}", "Databases:".cyan());
+        if databases.is_empty() {
+            println!("{}", "No databases found".cyan());
+        } else {
+            println!("{}", "Databases:".cyan());
 
-                for db in databases {
-                    println!("  {}", db.name.green());
-                    println!("    Description: {}", db.description);
-                    println!("         Config: {}", db.config.display());
-                    println!("        Ignores: {}", db.ignores.display());
-                    println!("  Database File: {}", db.data.display());
-                    println!(
-                        "  Paths Indexed: {}",
-                        db.files.to_formatted_string(&Locale::en)
-                    );
-                    println!(
-                        "   Last Updated: {}",
-                        humantime::format_rfc3339(db.data.metadata().unwrap().modified().unwrap())
-                    );
-                }
+            for db in databases {
+                println!("  {}", db.name.green());
+                println!("    Description: {}", db.description);
+                println!("         Config: {}", db.config.display());
+                println!("        Ignores: {}", db.ignores.display());
+                println!("  Database File: {}", db.data.display());
+                println!(
+                    "  Paths Indexed: {}",
+                    db.files.to_formatted_string(&Locale::en)
+                );
+                println!(
+                    "   Last Updated: {}",
+                    humantime::format_rfc3339(db.data.metadata()?.modified()?)
+                );
             }
         };
 
@@ -275,8 +294,8 @@ impl Database {
         Ok(paths)
     }
 
-    pub fn query(&self, patterns_re: &[Regex]) -> std::io::Result<()> {
-        if !self.data.parent().unwrap().exists() {
+    pub fn query(&self, patterns_re: &[Regex]) -> Result<()> {
+        if !self.data.parent().expect("Unable to get parent").exists() {
             print_err!(
                 "Database {} doesn't exist. Perhaps you forgot to run lolcate --create {} ?",
                 &self.name.green(),
@@ -299,10 +318,10 @@ impl Database {
 
         let mut matches: Vec<String> = vec![];
 
-        reader.for_byte_line(|_line| {
-            let line = str::from_utf8(_line).unwrap();
+        reader.for_byte_line(|line_| {
+            let line = str::from_utf8(line_).expect("Invalid UTF-8");
 
-            for re in patterns_re.iter() {
+            for re in patterns_re {
                 if !re.is_match(line) {
                     continue;
                 }
@@ -336,8 +355,8 @@ impl Database {
         Ok(())
     }
 
-    fn walker(&self) -> ignore::WalkParallel {
-        let mut paths = self.paths().unwrap().into_iter();
+    fn walker(&self) -> Result<ignore::WalkParallel> {
+        let mut paths = self.paths()?.into_iter();
 
         let mut wd = ignore::WalkBuilder::new(paths.next().expect("No paths provided"));
 
@@ -352,10 +371,13 @@ impl Database {
 
         wd.add_ignore(&self.ignores);
         wd.threads(num_cpus::get());
-        wd.build_parallel()
+
+        Ok(wd.build_parallel())
     }
 
-    pub fn update(&self) -> io::Result<()> {
+    #[allow(clippy::too_many_lines)]
+    pub fn update(&self) -> Result<()> {
+        //
         if !self.config.exists() {
             print_err!(
             "Config file not found for database {}.\n Perhaps you forgot to run lolcate --create \
@@ -374,9 +396,11 @@ impl Database {
             process::exit(1);
         }
 
-        fs::create_dir_all(self.data.parent().unwrap())?;
+        let parent = self.data.parent().expect("Unable to get parent");
 
-        let lockfile = self.data.parent().unwrap().join("lock");
+        fs::create_dir_all(parent)?;
+
+        let lockfile = parent.join("lock");
         let lock = std::fs::File::create(&lockfile)?;
 
         println!("Waiting for '{}' database lock ...", self.name.green());
@@ -389,7 +413,7 @@ impl Database {
 
         let (tx, rx) = channel::bounded::<WorkerResult>(8 * 1024);
 
-        let s = spinner();
+        let s = spinner()?;
         let start_time = SystemTime::now();
 
         s.set_message(format!("{} {}...", "Updating".green().bold(), self.name));
@@ -417,15 +441,15 @@ impl Database {
 
         let cache_dir: Arc<Mutex<BTreeSet<PathBuf>>> = Arc::new(Mutex::new(BTreeSet::new()));
 
-        self.walker().run(|| {
+        self.walker()?.run(|| {
             let tx = tx.clone();
             let ig = cache_dir.clone();
 
-            Box::new(move |_entry| {
+            Box::new(move |e| {
                 //: Result<ignore::DirEntry,ignore::Error>
 
                 // Taken from sharkdp/fd
-                let entry = match _entry {
+                let entry = match e {
                     Ok(e) => DirEntry::Normal(e),
                     Err(ignore::Error::WithPath { path, err: error }) => match error.as_ref() {
                         ignore::Error::Io(io_err)
@@ -442,14 +466,14 @@ impl Database {
                                 path,
                                 err: error,
                             })) {
-                                Ok(_) => ignore::WalkState::Continue,
+                                Ok(()) => ignore::WalkState::Continue,
                                 Err(_) => ignore::WalkState::Quit,
                             }
                         }
                     },
                     Err(err) => {
                         return match tx.send(WorkerResult::Error(err)) {
-                            Ok(_) => ignore::WalkState::Continue,
+                            Ok(()) => ignore::WalkState::Continue,
                             Err(_) => ignore::WalkState::Quit,
                         }
                     }
@@ -475,7 +499,7 @@ impl Database {
                 }
 
                 match tx.send(WorkerResult::Entry(entry.path().to_owned())) {
-                    Ok(_) => ignore::WalkState::Continue,
+                    Ok(()) => ignore::WalkState::Continue,
                     Err(_) => ignore::WalkState::Quit,
                 }
             })
@@ -483,13 +507,13 @@ impl Database {
 
         drop(tx);
 
-        stdout_thread.join().unwrap()?;
+        stdout_thread.join().expect("Unable to join threads")?;
 
         s.finish_with_message(format!(
             "{} {} in {}",
             "Updated".green().bold(),
             self.name,
-            humantime::format_duration(SystemTime::now().duration_since(start_time).unwrap()),
+            humantime::format_duration(SystemTime::now().duration_since(start_time)?),
         ));
 
         lock.unlock()?;
@@ -499,73 +523,63 @@ impl Database {
     }
 }
 
-fn build_regex(pattern: String, ignore_case: bool) -> Regex {
-    let re = UPPER_RE.get_or_init(|| Regex::new(r"[[:upper:]]").unwrap());
+fn build_regex(pattern: &str, ignore_case: bool) -> Regex {
+    let re = UPPER_RE.get_or_init(|| Regex::new(r"[[:upper:]]").expect("Unable to compile regex"));
 
-    match RegexBuilder::new(&pattern)
-        .case_insensitive(ignore_case || !re.is_match(&pattern))
+    match RegexBuilder::new(pattern)
+        .case_insensitive(ignore_case || !re.is_match(pattern))
         .build()
     {
         Ok(re) => re,
-        Err(error) => {
-            print_err!("invalid regex: {}", error);
-            process::exit(1);
-        }
+        Err(e) => panic!("invalid regex: {e}"),
     }
 }
 
-fn spinner() -> ProgressBar {
+fn spinner() -> Result<ProgressBar> {
     let pb = ProgressBar::new_spinner();
 
     pb.enable_steady_tick(Duration::from_millis(100));
 
-    pb.set_style(
-        ProgressStyle::with_template("{msg} {spinner:.cyan.bold}")
-            .unwrap()
-            .tick_chars("-\\|/"),
-    );
+    pb.set_style(ProgressStyle::with_template("{msg} {spinner:.cyan.bold}")?.tick_chars("-\\|/"));
 
-    pb
+    Ok(pb)
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
 
     let databases = if args.all {
-        Database::all()
+        Database::all()?
     } else {
-        vec![Database::new(&args.database)]
+        vec![Database::new(&args.database)?]
     };
 
     if args.create {
         for db in databases {
-            db.create()?
+            db.create()?;
         }
     } else if args.update {
         for db in databases {
-            db.update()?
+            db.update()?;
         }
     } else if args.info {
         Database::info()?;
     } else {
         let ignore_case = args.ignore_case;
 
-        let patterns_re = args
-            .pattern
-            .iter()
-            .map(|p| build_regex(p.to_string(), ignore_case));
+        let patterns_re = args.pattern.iter().map(|p| build_regex(p, ignore_case));
 
         let bn_patterns_re = args
             .basename_pattern
             .unwrap_or_default()
             .iter()
-            .map(|p| build_regex(format!("/[^/]*{}[^/]*$", p), ignore_case))
+            .map(|p| build_regex(&format!("/[^/]*{p}[^/]*$"), ignore_case))
             .collect::<Vec<_>>();
 
         let chained = &patterns_re.chain(bn_patterns_re).collect::<Vec<_>>();
 
         for db in databases {
-            db.query(chained)?
+            db.query(chained)?;
         }
     }
 
