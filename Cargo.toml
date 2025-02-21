@@ -3,7 +3,7 @@ authors = [ "Dan Sully <dan+github@sully.org>" ]
 categories = [ "command-line-utilities", "filesystem" ]
 description = "A comically fast way of indexing and querying your filesystem. Replaces locate / mlocate / updatedb."
 documentation = "https://github.com/dsully/lolcate-rs/blob/master/README.md"
-edition = "2021"
+edition = "2024"
 keywords = [ "filesystem-indexer", "search", "regex" ]
 license = "GPL-3.0"
 name = "lolcate-rs"
@@ -12,20 +12,20 @@ repository = "https://github.com/dsully/lolcate-rs"
 version = "0.2.2"
 
 [dependencies]
-anyhow = "1.0.89"
-bstr = "1.10"
+anyhow = "1.0.96"
+bstr = "1.11"
 cachedir = "0"
 clap = { version = "4", features = [ "cargo", "derive" ] }
-colored = "2"
+colored = "3"
 crossbeam-channel = "0.5"
 figment = { version = "0.10.19", features = [ "toml" ] }
 file_type_enum = "2.0.1"
-fs-err = "2"
-fs2 = "0.4.3"
+fs-err = "3"
+fs4 = { version = "0.12", features = ["sync"] }
 home-dir = "0.1.0"
 humantime = "2.1.0"
 ignore = "0.4"
-indicatif = "0.17.8"
+indicatif = "0.17.11"
 lz4 = "1"
 num-format = "0.4"
 num_cpus = "1.16.0"

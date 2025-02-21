@@ -25,7 +25,7 @@ use figment::{
     Figment,
 };
 use file_type_enum::FileType;
-use fs2::FileExt;
+use fs4::fs_std::FileExt;
 use fs_err as fs;
 use home_dir::HomeDirExt;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -457,7 +457,7 @@ impl Database {
                                 && path
                                     .symlink_metadata()
                                     .ok()
-                                    .map_or(false, |m| m.file_type().is_symlink()) =>
+                                    .is_some_and(|m| m.file_type().is_symlink()) =>
                         {
                             DirEntry::BrokenSymlink(path)
                         }
@@ -516,7 +516,7 @@ impl Database {
             humantime::format_duration(SystemTime::now().duration_since(start_time)?),
         ));
 
-        lock.unlock()?;
+        FileExt::unlock(&lock)?;
         fs::remove_file(lockfile)?;
 
         Ok(())
